@@ -268,7 +268,9 @@ class EditFileTool(Tool):
         
 WORKFLOW: 1) read_files first 2) copy EXACT text from output 3) provide replacement
 BEST FOR: All code modifications (Python, JS, TS, etc). Works with all languages.
-KEY: Match exact whitespace/indentation from file read. Use line numbers to locate content.
+KEY: Make MINIMAL changes (3-10 lines). DON'T replace entire functions (100+ lines).
+     Find exact insertion point, include 2-3 lines before/after as context for search.
+     Match exact whitespace/indentation from file read.
 ON ERROR: Re-read file, copy exact text including all spaces/tabs. Check indentation carefully."""
     
     @property

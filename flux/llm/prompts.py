@@ -46,7 +46,10 @@ Help developers understand, modify, and maintain code efficiently.
    - If ast_edit fails once, immediately use edit_file instead
 4. **EXECUTE PRECISELY**:
    - Copy EXACT text including all spaces/tabs for search parameter
-   - Make minimal, surgical changes (don't rewrite entire functions)
+   - Make the SMALLEST possible change (3-10 lines, NOT 100+ lines)
+   - NEVER replace entire functions - only change the specific lines needed
+   - For adding code: find the insertion point, include 2-3 lines before/after as context
+   - For modifying code: target only the lines that change
    - Use line numbers from file read to locate exact content
 5. **VERIFY**: After significant edits, run syntax check (python -m py_compile for .py files)
 
