@@ -1,0 +1,25 @@
+/* Add session UI styles here */
+header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px;
+  background-color: #1a1b26;
+  border-bottom: 1px solid #444b6a;
+}
+
+.icon-btn {
+  background-color: transparent;
+  border: none;
+  color: #9aa5ce;
+  cursor: pointer;
+  margin-left: 8px;
+}
+
+.icon-btn:hover {
+  color: #c0caf5;
+}
+
+.icon-btn svg {
+  width: 20px;
+  height: 20px;
+}

@@ -1,0 +1,1 @@
+"""Codebase search functionality."""

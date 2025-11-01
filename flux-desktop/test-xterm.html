@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Test xterm</title>
+    <style>
+        body {
+            background: #000;
+            color: #fff;
+            font-family: monospace;
+            padding: 20px;
+        }
+        #terminal {
+            width: 800px;
+            height: 600px;
+        }
+        #status {
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #333;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">Loading xterm...</div>
+    <div id="terminal"></div>
+    
+    <script>
+        const status = document.getElementById('status');
+        
+        try {
+            status.textContent = 'Step 1: Requiring xterm...';
+            const { Terminal } = require('xterm');
+            status.textContent = 'Step 2: Requiring FitAddon...';
+            const { FitAddon } = require('xterm-addon-fit');
+            status.textContent = 'Step 3: Creating terminal...';
+            
+            const terminal = new Terminal({
+                theme: {
+                    background: '#1a1b26',
+                    foreground: '#c0caf5'
+                }
+            });
+            
+            status.textContent = 'Step 4: Creating FitAddon...';
+            const fitAddon = new FitAddon();
+            
+            status.textContent = 'Step 5: Loading addon...';
+            terminal.loadAddon(fitAddon);
+            
+            status.textContent = 'Step 6: Opening terminal...';
+            terminal.open(document.getElementById('terminal'));
+            
+            status.textContent = 'Step 7: Fitting...';
+            fitAddon.fit();
+            
+            status.textContent = '✅ SUCCESS! xterm is working';
+            status.style.background = '#0a0';
+            
+            terminal.writeln('Terminal is working!');
+            terminal.writeln('Type: Hello World');
+            
+        } catch (error) {
+            status.textContent = '❌ ERROR: ' + error.message;
+            status.style.background = '#a00';
+            console.error('Full error:', error);
+        }
+    </script>
+</body>
+</html>

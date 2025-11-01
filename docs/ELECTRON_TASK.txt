@@ -1,0 +1,33 @@
+Add a connection status indicator to the Flux Desktop UI.
+
+TASK:
+Add CSS styling for the connection-status indicator to flux-desktop/src/renderer/styles.css
+
+The renderer.js already creates a div with class "connection-status" but it needs styling.
+
+ADD THIS CSS at the end of flux-desktop/src/renderer/styles.css:
+
+/* Connection Status Indicator */
+.connection-status {
+  padding: 8px 12px;
+  margin: 15px 20px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.connection-status.connected {
+  background-color: rgba(13, 188, 121, 0.2);
+  color: #0dbc79;
+  border: 1px solid #0dbc79;
+}
+
+.connection-status.disconnected {
+  background-color: rgba(205, 49, 49, 0.2);
+  color: #cd3131;
+  border: 1px solid #cd3131;
+}
+
+FILES TO MODIFY:
+- flux-desktop/src/renderer/styles.css (add the CSS above at the end)
