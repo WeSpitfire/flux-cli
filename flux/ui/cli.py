@@ -20,6 +20,7 @@ from flux.core.git_utils import GitIntegration
 from flux.core.codebase_intelligence import CodebaseGraph
 from flux.core.impact_analyzer import ImpactAnalyzer
 from flux.core.suggestions import SuggestionsEngine, Priority
+from flux.core.workspace import Workspace, TaskPriority, TaskStatus
 from flux.llm.client import LLMClient
 from flux.llm.prompts import SYSTEM_PROMPT
 from flux.tools.base import ToolRegistry
@@ -69,6 +70,10 @@ class CLI:
         
         # Initialize suggestions engine (lazy loading)
         self.suggestions_engine: Optional[SuggestionsEngine] = None
+        
+        # Initialize workspace manager
+        workspace_dir = config.flux_dir / "workspace"
+        self.workspace: Workspace = Workspace(workspace_dir, cwd)
         
         # Initialize tool registry
         self.tools = ToolRegistry()
@@ -287,6 +292,29 @@ class CLI:
                     await self.show_suggestions()
                     continue
                 
+                # Workspace commands
+                if query.lower().startswith('/session '):
+                    args = query[9:].strip()
+                    await self.handle_session_command(args)
+                    continue
+                
+                if query.lower() == '/sessions':
+                    await self.list_sessions()
+                    continue
+                
+                if query.lower().startswith('/newtask '):
+                    task_title = query[9:].strip()
+                    await self.create_task(task_title)
+                    continue
+                
+                if query.lower() == '/tasks':
+                    await self.list_tasks()
+                    continue
+                
+                if query.lower() == '/summary':
+                    await self.show_work_summary()
+                    continue
+                
                 if query.lower() == '/help':
                     self.console.print(
                         "[bold]Memory Commands:[/bold]\n"
@@ -310,6 +338,13 @@ class CLI:
                         "  /architecture - Show detected architecture\n"
                         "  /preview <file> - Preview impact of modifying a file\n"
                         "  /suggest - Get proactive AI suggestions\n"
+                        "\n[bold]Workspace Intelligence:[/bold]\n"
+                        "  /session save <name> - Save current work session\n"
+                        "  /session restore <id> - Restore a saved session\n"
+                        "  /sessions - List all sessions\n"
+                        "  /newtask <title> - Create a new task\n"
+                        "  /tasks - List all tasks\n"
+                        "  /summary - Show work summary for today\n"
                         "\n[bold]General:[/bold]\n"
                         "  /help - Show this help\n"
                     )
@@ -409,6 +444,15 @@ class CLI:
                 elif tool_name == 'run_command':
                     command = tool_input.get('command', '')
                     self.suggestions_engine.update_context(recent_command=command)
+            
+            # Update workspace tracking
+            if tool_name in ['read_files', 'write_file', 'edit_file', 'ast_edit']:
+                file_path = tool_input.get('file_path') or tool_input.get('path')
+                if file_path:
+                    self.workspace.track_file_access(file_path)
+            elif tool_name == 'run_command':
+                command = tool_input.get('command', '')
+                self.workspace.track_command(command)
             
             # Add result to conversation
             self.llm.add_tool_result(tool_id, result)
@@ -1060,3 +1104,215 @@ class CLI:
         # Reasoning
         if suggestion.reasoning:
             self.console.print(f"     [dim italic]Why: {suggestion.reasoning}[/dim italic]")
+    
+    # Workspace Intelligence Commands
+    
+    async def handle_session_command(self, args: str):
+        """Handle session sub-commands."""
+        parts = args.split(maxsplit=1)
+        if not parts:
+            self.console.print("[red]Usage: /session save <name> | /session restore <id>[/red]")
+            return
+        
+        command = parts[0].lower()
+        
+        if command == "save":
+            name = parts[1] if len(parts) > 1 else "Work Session"
+            session = self.workspace.save_session(name)
+            self.console.print(f"[green]✓ Session saved:[/green] {session.name}")
+            self.console.print(f"   ID: [cyan]{session.id}[/cyan]")
+            self.console.print(f"   Files: {len(session.files_modified)}")
+            self.console.print(f"   Time: {session.time_spent_seconds / 60:.1f} minutes")
+        
+        elif command == "restore":
+            if len(parts) < 2:
+                self.console.print("[red]Please provide session ID[/red]")
+                return
+            
+            session_id = parts[1]
+            session = self.workspace.restore_session(session_id)
+            
+            if session:
+                self.console.print(f"[green]✓ Restored session:[/green] {session.name}")
+                self.console.print(f"   Files: {len(session.open_files)}")
+                if session.current_task_id:
+                    task = self.workspace.get_task(session.current_task_id)
+                    if task:
+                        self.console.print(f"   Task: [yellow]{task.title}[/yellow]")
+            else:
+                self.console.print(f"[red]✗ Session not found: {session_id}[/red]")
+        
+        elif command == "end":
+            summary = self.workspace.end_session()
+            if summary:
+                self.console.print(f"[green]✓ Session ended:[/green] {summary.session_name}")
+                self.console.print(f"\n{summary.summary_text}")
+                
+                if summary.key_achievements:
+                    self.console.print(f"\n[bold]Key Achievements:[/bold]")
+                    for achievement in summary.key_achievements:
+                        self.console.print(f"  {achievement}")
+            else:
+                self.console.print("[yellow]No active session[/yellow]")
+        
+        else:
+            self.console.print(f"[red]Unknown session command: {command}[/red]")
+    
+    async def list_sessions(self):
+        """List all sessions."""
+        sessions = self.workspace.list_sessions(limit=10)
+        
+        if not sessions:
+            self.console.print("\n[yellow]No sessions found[/yellow]\n")
+            return
+        
+        self.console.print("\n[bold]📋 Work Sessions:[/bold]")
+        self.console.print("=" * 60)
+        
+        for i, session in enumerate(sessions, 1):
+            # Time info
+            from datetime import datetime
+            updated = datetime.fromtimestamp(session.updated_at).strftime("%Y-%m-%d %H:%M")
+            duration = session.time_spent_seconds / 60
+            
+            # Status indicator
+            is_active = self.workspace.active_session and self.workspace.active_session.id == session.id
+            status = "▶️ [green]ACTIVE[/green]" if is_active else "  "
+            
+            self.console.print(f"\n{status} {i}. [bold]{session.name}[/bold]")
+            self.console.print(f"     ID: [dim]{session.id}[/dim]")
+            self.console.print(f"     Updated: {updated}")
+            self.console.print(f"     Duration: {duration:.1f} minutes")
+            self.console.print(f"     Files: {len(session.files_modified)}")
+            
+            if session.description:
+                self.console.print(f"     [dim]{session.description}[/dim]")
+        
+        self.console.print("\n" + "=" * 60)
+        self.console.print("[dim]Use /session restore <id> to restore a session[/dim]\n")
+    
+    async def create_task(self, title: str):
+        """Create a new task."""
+        if not title:
+            self.console.print("[red]Please provide a task title[/red]")
+            return
+        
+        task = self.workspace.create_task(title)
+        self.console.print(f"[green]✓ Task created:[/green] {task.title}")
+        self.console.print(f"   ID: [cyan]{task.id}[/cyan]")
+        self.console.print(f"   Priority: {task.priority.value}")
+        self.console.print(f"   Status: {task.status.value}")
+    
+    async def list_tasks(self):
+        """List all tasks."""
+        tasks = self.workspace.list_tasks(limit=20)
+        
+        if not tasks:
+            self.console.print("\n[yellow]No tasks found[/yellow]")
+            self.console.print("[dim]Create one with: /newtask <title>[/dim]\n")
+            return
+        
+        self.console.print("\n[bold]✅ Tasks:[/bold]")
+        self.console.print("=" * 60)
+        
+        # Group by status
+        by_status = {}
+        for task in tasks:
+            if task.status not in by_status:
+                by_status[task.status] = []
+            by_status[task.status].append(task)
+        
+        # Status emoji and colors
+        status_emoji = {
+            TaskStatus.TODO: "○",
+            TaskStatus.IN_PROGRESS: "▶️",
+            TaskStatus.BLOCKED: "⛔",
+            TaskStatus.DONE: "✅",
+            TaskStatus.CANCELLED: "❌"
+        }
+        
+        status_color = {
+            TaskStatus.TODO: "white",
+            TaskStatus.IN_PROGRESS: "cyan",
+            TaskStatus.BLOCKED: "yellow",
+            TaskStatus.DONE: "green",
+            TaskStatus.CANCELLED: "red"
+        }
+        
+        # Priority emoji
+        priority_emoji = {
+            TaskPriority.URGENT: "🔴",
+            TaskPriority.HIGH: "🟠",
+            TaskPriority.MEDIUM: "🟡",
+            TaskPriority.LOW: "🟢",
+            TaskPriority.BACKLOG: "⬜"
+        }
+        
+        # Show tasks by status
+        for status in [TaskStatus.IN_PROGRESS, TaskStatus.TODO, TaskStatus.BLOCKED, TaskStatus.DONE]:
+            if status not in by_status:
+                continue
+            
+            status_tasks = by_status[status]
+            emoji = status_emoji.get(status, "○")
+            color = status_color.get(status, "white")
+            
+            self.console.print(f"\n[{color}]{emoji} {status.value.upper().replace('_', ' ')}[/{color}]")
+            
+            for task in status_tasks[:10]:  # Limit per status
+                priority_icon = priority_emoji.get(task.priority, "")
+                
+                # Show current task indicator
+                current = "🎯 " if (self.workspace.active_session and 
+                                         self.workspace.active_session.current_task_id == task.id) else "   "
+                
+                self.console.print(f"{current}{priority_icon} [bold]{task.title}[/bold]")
+                self.console.print(f"       [dim]ID: {task.id} | Priority: {task.priority.value}[/dim]")
+                
+                if task.description:
+                    desc = task.description[:60] + "..." if len(task.description) > 60 else task.description
+                    self.console.print(f"       [dim]{desc}[/dim]")
+        
+        # Suggest next task
+        next_task = self.workspace.suggest_next_task()
+        if next_task:
+            self.console.print(f"\n[bold cyan]💡 Suggested Next Task:[/bold cyan]")
+            self.console.print(f"   {next_task.title}")
+            self.console.print(f"   [dim]Priority: {next_task.priority.value} | ID: {next_task.id}[/dim]")
+        
+        self.console.print("\n" + "=" * 60 + "\n")
+    
+    async def show_work_summary(self):
+        """Show work summary for today."""
+        summary = self.workspace.get_daily_summary()
+        
+        self.console.print("\n[bold]📊 Today's Work Summary:[/bold]")
+        self.console.print("=" * 60)
+        
+        self.console.print(f"\n🕒 Time: {summary['total_minutes']:.1f} minutes")
+        if summary['total_minutes'] >= 60:
+            hours = summary['total_minutes'] / 60
+            self.console.print(f"      ({hours:.1f} hours)")
+        
+        self.console.print(f"\n📋 Sessions: {summary['sessions']}")
+        self.console.print(f"📄 Files Modified: {summary['files_modified']}")
+        self.console.print(f"✅ Tasks Completed: {summary['tasks_completed']}")
+        
+        if summary['completed_task_titles']:
+            self.console.print(f"\n[bold]Completed Tasks:[/bold]")
+            for task_title in summary['completed_task_titles']:
+                self.console.print(f"  ✓ {task_title}")
+        
+        # Show active session info
+        if self.workspace.active_session:
+            session = self.workspace.active_session
+            self.console.print(f"\n[bold cyan]Active Session:[/bold cyan] {session.name}")
+            self.console.print(f"  Duration: {session.time_spent_seconds / 60:.1f} minutes")
+            self.console.print(f"  Files: {len(session.files_modified)}")
+            
+            if session.current_task_id:
+                task = self.workspace.get_task(session.current_task_id)
+                if task:
+                    self.console.print(f"  Current Task: [yellow]{task.title}[/yellow]")
+        
+        self.console.print("\n" + "=" * 60 + "\n")
