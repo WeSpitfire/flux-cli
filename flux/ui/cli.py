@@ -190,7 +190,20 @@ class CLI:
                     self.llm.clear_history()
                     self.console.print("[green]✓ Conversation history cleared[/green]")
                     continue
-
+                
+                if query.lower() == '/history':
+                    usage = self.llm.get_token_usage()
+                    history_len = len(self.llm.conversation_history)
+                    self.console.print(
+                        f"\n[bold]💬 Conversation History:[/bold]\n"
+                        f"  Messages: [cyan]{history_len}[/cyan]\n"
+                        f"  Input tokens: [cyan]{usage['input_tokens']:,}[/cyan]\n"
+                        f"  Output tokens: [cyan]{usage['output_tokens']:,}[/cyan]\n"
+                        f"  Total tokens: [cyan]{usage['total_tokens']:,}[/cyan]\n"
+                        f"  Estimated cost: [green]${usage['estimated_cost']:.4f}[/green]\n"
+                    )
+                    continue
+                
                 if not query.strip():
                     continue
 
@@ -357,6 +370,7 @@ class CLI:
                         "  /stats - Show project statistics\n"
                         "\n[bold]General:[/bold]\n"
                         "  /help - Show this help\n"
+                        "  /history - Show conversation history summary\n"
                         "  /clear - Clear conversation history\n"
                     )
                     continue
