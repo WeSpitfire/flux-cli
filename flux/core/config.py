@@ -12,8 +12,12 @@ import warnings
 class Config:
     """Flux configuration."""
     
+    # Provider Settings
+    provider: str = field(default_factory=lambda: os.getenv("FLUX_PROVIDER", "anthropic"))
+    
     # API Keys
     anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
+    openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     
     # LLM Settings
     model: str = field(default_factory=lambda: os.getenv("FLUX_MODEL", "claude-3-5-sonnet-20240620"))
@@ -33,12 +37,8 @@ class Config:
     
     def __post_init__(self):
         """Validate configuration and create directories."""
-        if not self.anthropic_api_key:
-            raise ValueError(
-                "\n❌ ANTHROPIC_API_KEY environment variable is required.\n"
-                "   Please set it in your .env file or shell environment.\n"
-                "   Get your API key from: https://console.anthropic.com/\n"
-            )
+        # Validate provider
+        self._validate_provider()
         
         # Validate model selection
         self._validate_model()
@@ -50,29 +50,84 @@ class Config:
         self.flux_dir.mkdir(parents=True, exist_ok=True)
         self.chroma_dir.mkdir(parents=True, exist_ok=True)
     
+    def _validate_provider(self) -> None:
+        """Validate provider configuration."""
+        valid_providers = ["anthropic", "openai"]
+        
+        if self.provider not in valid_providers:
+            raise ValueError(
+                f"\n❌ Invalid FLUX_PROVIDER: {self.provider}\n"
+                f"   Supported providers: {', '.join(valid_providers)}\n"
+            )
+        
+        # Check for required API keys
+        if self.provider == "anthropic" and not self.anthropic_api_key:
+            raise ValueError(
+                "\n❌ ANTHROPIC_API_KEY environment variable is required.\n"
+                "   Please set it in your .env file or shell environment.\n"
+                "   Get your API key from: https://console.anthropic.com/\n"
+            )
+        
+        if self.provider == "openai" and not self.openai_api_key:
+            raise ValueError(
+                "\n❌ OPENAI_API_KEY environment variable is required.\n"
+                "   Please set it in your .env file or shell environment.\n"
+                "   Get your API key from: https://platform.openai.com/api-keys\n"
+            )
+    
     def _validate_model(self) -> None:
         """Validate and warn about model selection."""
-        valid_models = {
-            "claude-3-5-sonnet-20240620": {"context": 200000, "recommended": True},
-            "claude-3-5-sonnet-20241022": {"context": 200000, "recommended": False},  # Not widely available yet
-            "claude-3-opus-20240229": {"context": 200000, "recommended": False},
-            "claude-3-sonnet-20240229": {"context": 200000, "recommended": False},
-            "claude-3-haiku-20240307": {"context": 200000, "recommended": False},
-        }
+        # Provider-specific model validation
+        if self.provider == "anthropic":
+            valid_models = {
+                "claude-3-5-sonnet-20240620": {"context": 200000, "recommended": True},
+                "claude-3-5-sonnet-20241022": {"context": 200000, "recommended": True},
+                "claude-3-opus-20240229": {"context": 200000, "recommended": False},
+                "claude-3-sonnet-20240229": {"context": 200000, "recommended": False},
+                "claude-3-haiku-20240307": {"context": 200000, "recommended": False},
+            }
+            
+            if self.model not in valid_models:
+                warnings.warn(
+                    f"\n⚠️  Unknown Anthropic model: {self.model}\n"
+                    f"   Supported models: {', '.join(valid_models.keys())}\n"
+                    f"   Proceeding anyway, but this may cause issues.\n",
+                    UserWarning
+                )
+            elif not valid_models[self.model].get("recommended"):
+                print(
+                    f"\n💡 You're using {self.model}\n"
+                    f"   Consider upgrading to claude-3-5-sonnet-20241022 for best performance.\n",
+                    file=sys.stderr
+                )
         
-        if self.model not in valid_models:
-            warnings.warn(
-                f"\n⚠️  Unknown model: {self.model}\n"
-                f"   Supported models: {', '.join(valid_models.keys())}\n"
-                f"   Proceeding anyway, but this may cause issues.\n",
-                UserWarning
-            )
-        elif not valid_models[self.model].get("recommended"):
-            print(
-                f"\n💡 You're using {self.model}\n"
-                f"   Consider upgrading to claude-3-5-sonnet-20240620 for best performance.\n",
-                file=sys.stderr
-            )
+        elif self.provider == "openai":
+            valid_models = [
+                "gpt-4o",
+                "gpt-4-turbo",
+                "gpt-4-turbo-preview",
+                "gpt-4-1106-preview",
+                "gpt-4-0125-preview",
+                "gpt-4",
+                "gpt-3.5-turbo",
+            ]
+            
+            # Check if model starts with any valid prefix
+            if not any(self.model.startswith(m) for m in valid_models):
+                warnings.warn(
+                    f"\n⚠️  Unknown OpenAI model: {self.model}\n"
+                    f"   Recommended models: gpt-4o, gpt-4-turbo, gpt-4\n"
+                    f"   Proceeding anyway, but this may cause issues.\n",
+                    UserWarning
+                )
+            
+            # Recommend GPT-4o
+            if "gpt-3.5" in self.model or "gpt-4" in self.model and "gpt-4o" not in self.model:
+                print(
+                    f"\n💡 You're using {self.model}\n"
+                    f"   Consider using gpt-4o for best performance and value.\n",
+                    file=sys.stderr
+                )
     
     def _validate_tokens(self) -> None:
         """Validate token configuration."""

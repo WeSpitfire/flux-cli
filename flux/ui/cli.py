@@ -21,7 +21,7 @@ from flux.core.codebase_intelligence import CodebaseGraph
 from flux.core.impact_analyzer import ImpactAnalyzer
 from flux.core.suggestions import SuggestionsEngine, Priority
 from flux.core.workspace import Workspace, TaskPriority, TaskStatus
-from flux.llm.client import LLMClient
+from flux.llm.provider_factory import create_provider
 from flux.llm.prompts import SYSTEM_PROMPT
 from flux.tools.base import ToolRegistry
 from flux.tools.file_ops import ReadFilesTool, WriteFileTool, EditFileTool
@@ -40,7 +40,7 @@ class CLI:
         self.config = config
         self.cwd = cwd
         self.console = Console()
-        self.llm = LLMClient(config)
+        self.llm = create_provider(config)
         
         # Detect project
         self.project_info = ProjectDetector(cwd).detect()
@@ -149,6 +149,7 @@ class CLI:
         banner.append("╚═══════════════════════════════╝", style="bold blue")
         self.console.print(banner)
         self.console.print(f"Working directory: [cyan]{self.cwd}[/cyan]")
+        self.console.print(f"Provider: [cyan]{self.config.provider}[/cyan]")
         self.console.print(f"Model: [cyan]{self.config.model}[/cyan]")
         
         # Show project info if detected
