@@ -315,6 +315,10 @@ class CLI:
                     await self.show_work_summary()
                     continue
                 
+                if query.lower() == '/stats':
+                    await self.show_project_stats()
+                    continue
+                
                 if query.lower() == '/help':
                     self.console.print(
                         "[bold]Memory Commands:[/bold]\n"
@@ -345,6 +349,7 @@ class CLI:
                         "  /newtask <title> - Create a new task\n"
                         "  /tasks - List all tasks\n"
                         "  /summary - Show work summary for today\n"
+                        "  /stats - Show project statistics\n"
                         "\n[bold]General:[/bold]\n"
                         "  /help - Show this help\n"
                     )
@@ -1314,5 +1319,30 @@ class CLI:
                 task = self.workspace.get_task(session.current_task_id)
                 if task:
                     self.console.print(f"  Current Task: [yellow]{task.title}[/yellow]")
+        
+        self.console.print("\n" + "=" * 60 + "\n")
+    
+    async def show_project_stats(self):
+        """Show project-level statistics."""
+        if not self.codebase_graph:
+            await self.build_codebase_graph()
+            
+        if not self.codebase_graph:
+            self.console.print("[red]Could not build codebase graph[/red]")
+            return
+        
+        total_files = len(self.codebase_graph.files)
+        total_entities = len(self.codebase_graph.entities)
+        
+        self.console.print("\n[bold]📊 Project Statistics:[/bold]")
+        self.console.print("=" * 60)
+        
+        self.console.print(f"\n📂 Total Files: [cyan]{total_files}[/cyan]")
+        self.console.print(f"📚 Total Entities: [cyan]{total_entities}[/cyan]")
+        
+        if self.project_info:
+            self.console.print(f"\n📈 Project: [green]{self.project_info.name}[/green] ({self.project_info.project_type})")
+            if self.project_info.frameworks:
+                self.console.print(f"💻 Tech: [dim]{', '.join(self.project_info.frameworks)}[/dim]")
         
         self.console.print("\n" + "=" * 60 + "\n")

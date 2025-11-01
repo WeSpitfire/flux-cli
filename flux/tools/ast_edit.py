@@ -53,8 +53,9 @@ class ASTEditTool(Tool):
         
 USAGE: Python files only. For JS/TS, use edit_file instead.
 OPERATIONS: add_function, remove_function, modify_function, add_import, remove_import (ONLY these 5)
-BEST FOR: Adding/modifying Python functions when you know the exact structure.
-ON ERROR: Tool will suggest correct operation. If it fails, use edit_file instead."""
+BEST FOR: Adding COMPLETE NEW Python functions to a class/module.
+WARNING: If this tool fails EVEN ONCE, immediately pivot to edit_file. Do NOT retry ast_edit.
+ON ERROR: Use edit_file instead (more reliable for modifications)."""
     
     @property
     def parameters(self) -> List[ToolParameter]:

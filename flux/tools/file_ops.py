@@ -26,7 +26,8 @@ class ReadFilesTool(Tool):
     def description(self) -> str:
         return """Read file contents with line numbers.
         
-USAGE: Pass list of file paths. Always read files BEFORE modifying them.
+CRITICAL: ALWAYS use this BEFORE any edit operation (100% of time, no exceptions).
+USAGE: Pass list of file paths. Read entire file or use line numbers to find exact content.
 CACHING: Files are cached during workflow - reading same file twice uses cache.
 ON ERROR: Use list_files or find_files to discover correct paths."""
     
@@ -263,11 +264,12 @@ class EditFileTool(Tool):
     
     @property
     def description(self) -> str:
-        return """Edit files by replacing exact text matches. Most reliable tool for code changes.
+        return """Edit files by replacing exact text matches. MOST RELIABLE TOOL - use for 90% of edits.
         
-USAGE: Read file first, copy EXACT text to replace (whitespace matters), provide new text.
-BEST FOR: Any code changes, especially JS/TS/CSS/HTML/JSON. Preserves undo history.
-ON ERROR: Re-read file to see current content - text must match exactly including all spaces/tabs."""
+WORKFLOW: 1) read_files first 2) copy EXACT text from output 3) provide replacement
+BEST FOR: All code modifications (Python, JS, TS, etc). Works with all languages.
+KEY: Match exact whitespace/indentation from file read. Use line numbers to locate content.
+ON ERROR: Re-read file, copy exact text including all spaces/tabs. Check indentation carefully."""
     
     @property
     def parameters(self) -> List[ToolParameter]:
