@@ -205,6 +205,14 @@ class CLI:
                     )
                     continue
                 
+                if query.lower() == '/model':
+                    self.console.print(
+                        f"\n[bold]🤖 Current Model:[/bold]\n"
+                        f"  Provider: [cyan]{self.config.provider}[/cyan]\n"
+                        f"  Model: [cyan]{self.config.model}[/cyan]\n"
+                    )
+                    continue
+                
                 if not query.strip():
                     continue
 
@@ -371,6 +379,7 @@ class CLI:
                         "  /stats - Show project statistics\n"
                         "\n[bold]General:[/bold]\n"
                         "  /help - Show this help\n"
+                        "  /model - Show current provider and model\n"
                         "  /history - Show conversation history summary\n"
                         "  /clear - Clear conversation history\n"
                     )
