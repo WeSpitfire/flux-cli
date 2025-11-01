@@ -38,7 +38,8 @@ ON ERROR: Use list_files or find_files to discover correct paths."""
                 name="paths",
                 type="array",
                 description="List of file paths to read (relative to current directory or absolute)",
-                required=True
+                required=True,
+                items={"type": "string"}
             )
     ]
     

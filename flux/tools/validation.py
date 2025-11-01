@@ -32,13 +32,15 @@ class ValidationTool(Tool):
                 name="paths",
                 type="array",
                 description="List of file paths to validate",
-                required=True
+                required=True,
+                items={"type": "string"}
             ),
             ToolParameter(
                 name="check_types",
                 type="array",
                 description="Types of checks to run (paths, imports, references, all)",
-                required=False
+                required=False,
+                items={"type": "string"}
             )
         ]
     

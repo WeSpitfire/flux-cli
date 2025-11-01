@@ -13,6 +13,7 @@ class ToolParameter:
     description: str
     required: bool = True
     enum: Optional[List[str]] = None
+    items: Optional[Dict[str, Any]] = None  # For array types
 
 
 class Tool(ABC):
@@ -59,6 +60,10 @@ class Tool(ABC):
             
             if param.enum:
                 param_schema["enum"] = param.enum
+            
+            # Add items for array types (required by OpenAI)
+            if param.type == "array" and param.items:
+                param_schema["items"] = param.items
             
             properties[param.name] = param_schema
             
