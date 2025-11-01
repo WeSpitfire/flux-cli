@@ -356,7 +356,9 @@ ON ERROR: Re-read file, copy exact text including all spaces/tabs. Check indenta
                 return syntax_error_response(
                     validation["error"],
                     line_number=validation.get("line"),
-                    rolled_back=True
+                    rolled_back=True,
+                    original_content=content,
+                    modified_content=new_content
                 )
             
             # Request approval if approval manager is present

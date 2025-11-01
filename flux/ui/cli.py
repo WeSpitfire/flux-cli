@@ -21,6 +21,7 @@ from flux.core.codebase_intelligence import CodebaseGraph
 from flux.core.impact_analyzer import ImpactAnalyzer
 from flux.core.suggestions import SuggestionsEngine, Priority
 from flux.core.workspace import Workspace, TaskPriority, TaskStatus
+from flux.core.failure_tracker import FailureTracker
 from flux.llm.provider_factory import create_provider
 from flux.llm.prompts import SYSTEM_PROMPT
 from flux.tools.base import ToolRegistry
@@ -30,6 +31,7 @@ from flux.tools.search import GrepSearchTool
 from flux.tools.filesystem import ListFilesTool, FindFilesTool
 from flux.tools.ast_edit import ASTEditTool
 from flux.tools.validation import ValidationTool
+from flux.tools.preview import PreviewEditTool
 
 
 class CLI:
@@ -75,11 +77,15 @@ class CLI:
         workspace_dir = config.flux_dir / "workspace"
         self.workspace: Workspace = Workspace(workspace_dir, cwd)
         
+        # Initialize failure tracker
+        self.failure_tracker = FailureTracker()
+        
         # Initialize tool registry
         self.tools = ToolRegistry()
         self.tools.register(ReadFilesTool(cwd, workflow_enforcer=self.workflow))
         self.tools.register(WriteFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
         self.tools.register(EditFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
+        self.tools.register(PreviewEditTool(cwd))
         self.tools.register(RunCommandTool(cwd))
         self.tools.register(GrepSearchTool(cwd, workflow_enforcer=self.workflow))
         self.tools.register(ListFilesTool(cwd))
@@ -463,6 +469,32 @@ class CLI:
         # Execute tool
         try:
             result = await self.tools.execute(tool_name, **tool_input)
+            
+            # Check if result is an error
+            is_error = isinstance(result, dict) and "error" in result
+            
+            if is_error:
+                # Record failure
+                error_dict = result.get("error", {})
+                error_code = error_dict.get("code") if isinstance(error_dict, dict) else None
+                error_message = error_dict.get("message") if isinstance(error_dict, dict) else str(result.get("error"))
+                
+                self.failure_tracker.record_failure(
+                    tool_name=tool_name,
+                    error_code=error_code,
+                    error_message=error_message,
+                    input_params=tool_input
+                )
+                
+                # Check for retry loop and inject guidance
+                if self.failure_tracker.is_retry_loop(tool_name):
+                    guidance = self.failure_tracker.get_retry_guidance(tool_name)
+                    if guidance:
+                        # Inject guidance into the result for LLM to see
+                        result["retry_guidance"] = guidance
+            else:
+                # Success - clear failures for this tool
+                self.failure_tracker.clear_tool_failures(tool_name)
             
             # Record in memory
             self.memory.record_tool_use(tool_name, tool_input, result)

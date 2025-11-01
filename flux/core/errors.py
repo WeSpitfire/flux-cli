@@ -113,21 +113,112 @@ def function_not_found_error(
 def syntax_error_response(
     error_message: str,
     line_number: Optional[int] = None,
-    rolled_back: bool = True
+    rolled_back: bool = True,
+    original_content: Optional[str] = None,
+    modified_content: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Generate syntax error response."""
+    """Generate enhanced syntax error response with indentation analysis."""
     details = {
         "rolled_back": rolled_back
     }
     if line_number:
         details["line_number"] = line_number
     
+    # Analyze indentation if we have both contents
+    suggestion = "Try edit_file instead for more precise control, or break the change into smaller steps"
+    
+    if original_content and modified_content and line_number and "indent" in error_message.lower():
+        indent_analysis = _analyze_indentation_error(
+            original_content, 
+            modified_content, 
+            line_number
+        )
+        if indent_analysis:
+            details.update(indent_analysis)
+            suggestion = indent_analysis.get("suggestion", suggestion)
+    
     return ToolError(
         code=ErrorCode.SYNTAX_ERROR,
         message=f"Syntax error: {error_message}",
-        suggestion="Try edit_file instead for more precise control, or break the change into smaller steps",
+        suggestion=suggestion,
         details=details
     ).to_dict()
+
+
+def _analyze_indentation_error(
+    original: str,
+    modified: str,
+    error_line: int
+) -> Optional[Dict[str, Any]]:
+    """Analyze indentation mismatch and provide helpful context."""
+    try:
+        orig_lines = original.split('\n')
+        mod_lines = modified.split('\n')
+        
+        if error_line > len(mod_lines) or error_line < 1:
+            return None
+        
+        error_idx = error_line - 1
+        error_line_text = mod_lines[error_idx] if error_idx < len(mod_lines) else ""
+        
+        # Calculate indentation
+        error_indent = len(error_line_text) - len(error_line_text.lstrip())
+        
+        # Find expected indentation from previous non-empty lines
+        expected_indent = None
+        for i in range(error_idx - 1, max(0, error_idx - 10), -1):
+            if i < len(orig_lines) and orig_lines[i].strip():
+                expected_indent = len(orig_lines[i]) - len(orig_lines[i].lstrip())
+                break
+        
+        # Show context around error
+        context_start = max(0, error_idx - 2)
+        context_end = min(len(mod_lines), error_idx + 3)
+        
+        context_lines = []
+        for i in range(context_start, context_end):
+            if i < len(mod_lines):
+                marker = " ❌" if i == error_idx else ""
+                indent_spaces = len(mod_lines[i]) - len(mod_lines[i].lstrip())
+                context_lines.append(
+                    f"  {i+1:3d}|{mod_lines[i][:80]}{marker}  (indent: {indent_spaces} spaces)"
+                )
+        
+        # Build helpful suggestion
+        if expected_indent is not None:
+            indent_diff = error_indent - expected_indent
+            if indent_diff > 0:
+                direction = f"Remove {indent_diff} spaces"
+            elif indent_diff < 0:
+                direction = f"Add {-indent_diff} spaces"
+            else:
+                direction = "Check context"
+            
+            suggestion = (
+                f"Indentation mismatch at line {error_line}. "
+                f"Expected: {expected_indent} spaces (to match surrounding code), "
+                f"Got: {error_indent} spaces. "
+                f"{direction} to fix. "
+                f"Read lines {context_start+1}-{context_end} to see the exact indentation pattern."
+            )
+        else:
+            suggestion = (
+                f"Indentation error at line {error_line}. "
+                f"Current indent: {error_indent} spaces. "
+                f"Read lines {context_start+1}-{context_end} to see the correct indentation."
+            )
+        
+        return {
+            "indentation_error": True,
+            "expected_indent": expected_indent,
+            "actual_indent": error_indent,
+            "context": "\n".join(context_lines),
+            "context_range": f"{context_start+1}-{context_end}",
+            "suggestion": suggestion
+        }
+    
+    except Exception:
+        return None
 
 
 def invalid_operation_error(
