@@ -9,7 +9,7 @@ Dogfooding tests revealed that **Haiku fundamentally struggles with code editing
 | Model | Success Rate | Attempts | Quality |
 |-------|--------------|----------|---------|
 | Haiku (claude-3-haiku-20240307) | ~30% | 3-6+ | Poor error recovery |
-| Sonnet 4.5 (claude-3-5-sonnet-20241022) | ~95% | 1-2 | Excellent |
+| Sonnet 4.5 (claude-3-5-sonnet-20240620) | ~95% | 1-2 | Excellent |
 
 **Warp uses Sonnet 4.5 and succeeds consistently.** The cost increase is worth it for reliability.
 
@@ -26,7 +26,7 @@ Edit your `.env` file and change:
 FLUX_MODEL=claude-3-haiku-20240307
 
 # TO:
-FLUX_MODEL=claude-3-5-sonnet-20241022
+FLUX_MODEL=claude-3-5-sonnet-20240620
 ```
 
 ### Step 2: Verify
@@ -36,7 +36,7 @@ FLUX_MODEL=claude-3-5-sonnet-20241022
 env | grep FLUX_MODEL
 
 # Should output:
-# FLUX_MODEL=claude-3-5-sonnet-20241022
+# FLUX_MODEL=claude-3-5-sonnet-20240620
 ```
 
 ### Step 3: Test
@@ -46,7 +46,7 @@ env | grep FLUX_MODEL
 python -m flux
 
 # Should show:
-# Model: claude-3-5-sonnet-20241022
+# Model: claude-3-5-sonnet-20240620
 ```
 
 ---
@@ -157,7 +157,7 @@ This would require code changes to dynamically select models based on task type.
 ## Summary
 
 **What you did:**
-- Changed `FLUX_MODEL=claude-3-5-sonnet-20241022` in `.env`
+- Changed `FLUX_MODEL=claude-3-5-sonnet-20240620` in `.env`
 
 **What you get:**
 - 3x better success rate
