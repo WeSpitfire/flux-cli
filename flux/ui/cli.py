@@ -170,56 +170,61 @@ class CLI:
     async def run_interactive(self):
         """Run interactive REPL mode."""
         self.print_banner()
-        
+
         # Auto-build codebase graph in background
         import asyncio
         asyncio.create_task(self.build_codebase_graph())
-        
+
         self.console.print("[dim]Type 'exit' or 'quit' to exit[/dim]\n")
-        
+
         while True:
             try:
                 # Get user input
                 query = Prompt.ask("\n[bold green]You[/bold green]")
-                
+
                 if query.lower() in ['exit', 'quit', 'q']:
                     self.console.print("\n[cyan]Goodbye![/cyan]")
                     break
-                
+
+                if query.lower() == '/clear':
+                    self.llm.clear_history()
+                    self.console.print("[green]✓ Conversation history cleared[/green]")
+                    continue
+
                 if not query.strip():
                     continue
-                
+
                 # Handle special memory commands
                 if query.lower().startswith('/task '):
                     task = query[6:].strip()
                     self.memory.set_current_task(task)
                     self.console.print(f"[green]Task set:[/green] {task}")
                     continue
-                
+
                 if query.lower() == '/memory':
                     mem_str = self.memory.to_context_string(max_items=10)
-                    self.console.print(Panel(mem_str, title="📚 Memory", border_style="blue"))
+                    self.console.print(Panel(mem_str, title="\ud83d\udcda Memory", border_style="blue"))
                     continue
-                
+
                 if query.lower() == '/checkpoint':
                     msg = query[12:].strip() if len(query) > 12 else "Manual checkpoint"
                     self.memory.add_checkpoint(msg)
                     self.console.print(f"[green]Checkpoint saved:[/green] {msg}")
                     continue
-                
+
                 if query.lower() == '/undo':
                     result = self.undo.undo_last()
                     if result.get("error"):
                         self.console.print(f"[red]{result['error']}[/red]")
                     else:
                         self.console.print(
-                            f"[green]✓ Undone:[/green] {result['description']}\n"
+                            f"[green]\u2713 Undone:[/green] {result['description']}\n"
                             f"  File: {result['file']}\n"
                             f"  Action: {result['action']}\n"
                             f"  Time: {result['timestamp']}"
                         )
                     continue
-                
+
                 if query.lower() == '/undo-history':
                     history = self.undo.get_history()
                     if not history:
@@ -233,17 +238,17 @@ class CLI:
                             )
                         self.console.print("\n".join(lines))
                     continue
-                
+
                 if query.lower() == '/project':
                     summary = self.memory.get_project_summary()
-                    self.console.print(Panel(summary, title="📦 Project Files", border_style="blue"))
+                    self.console.print(Panel(summary, title="\ud83d\udce6 Project Files", border_style="blue"))
                     continue
-                
+
                 if query.lower() == '/workflow':
                     summary = self.workflow.get_summary()
-                    self.console.print(Panel(summary, title="🔄 Workflow Status", border_style="blue"))
+                    self.console.print(Panel(summary, title="\ud83d\udd04 Workflow Status", border_style="blue"))
                     continue
-                
+
                 if query.lower() == '/approval':
                     stats = self.approval.get_approval_stats()
                     summary = (
@@ -252,73 +257,73 @@ class CLI:
                         f"Rejected: [red]{stats['rejected']}[/red]\n"
                         f"Approval rate: {stats['rate']:.1%}"
                     )
-                    self.console.print(Panel(summary, title="✅ Approval Stats", border_style="blue"))
+                    self.console.print(Panel(summary, title="\u2705 Approval Stats", border_style="blue"))
                     continue
-                
+
                 # Git commands
                 if query.lower() == '/diff':
                     await self.show_diff()
                     continue
-                
+
                 if query.lower().startswith('/commit'):
                     await self.smart_commit(query)
                     continue
-                
+
                 if query.lower() == '/test':
                     await self.run_tests()
                     continue
-                
+
                 # Codebase intelligence commands
                 if query.lower() == '/index':
                     await self.build_codebase_graph()
                     continue
-                
+
                 if query.lower().startswith('/related '):
                     file_or_query = query[9:].strip()
                     await self.show_related_files(file_or_query)
                     continue
-                
+
                 if query.lower() == '/architecture':
                     await self.show_architecture()
                     continue
-                
+
                 if query.lower().startswith('/preview '):
                     file_path = query[9:].strip()
                     await self.show_file_preview(file_path)
                     continue
-                
+
                 # Proactive suggestions
                 if query.lower() == '/suggest':
                     await self.show_suggestions()
                     continue
-                
+
                 # Workspace commands
                 if query.lower().startswith('/session '):
                     args = query[9:].strip()
                     await self.handle_session_command(args)
                     continue
-                
+
                 if query.lower() == '/sessions':
                     await self.list_sessions()
                     continue
-                
+
                 if query.lower().startswith('/newtask '):
                     task_title = query[9:].strip()
                     await self.create_task(task_title)
                     continue
-                
+
                 if query.lower() == '/tasks':
                     await self.list_tasks()
                     continue
-                
+
                 if query.lower() == '/summary':
                     await self.show_work_summary()
                     continue
-                
+
                 if query.lower() == '/stats':
                     await self.show_project_stats()
                     continue
-                
+
                 if query.lower() == '/help':
                     self.console.print(
                         "[bold]Memory Commands:[/bold]\n"
@@ -343,7 +348,7 @@ class CLI:
                         "  /preview <file> - Preview impact of modifying a file\n"
                         "  /suggest - Get proactive AI suggestions\n"
                         "\n[bold]Workspace Intelligence:[/bold]\n"
-                        "  /session save <name> - Save current work session\n"
+                        "  /session save <n> - Save current work session\n"
                         "  /session restore <id> - Restore a saved session\n"
                         "  /sessions - List all sessions\n"
                         "  /newtask <title> - Create a new task\n"
@@ -352,12 +357,13 @@ class CLI:
                         "  /stats - Show project statistics\n"
                         "\n[bold]General:[/bold]\n"
                         "  /help - Show this help\n"
+                        "  /clear - Clear conversation history\n"
                     )
                     continue
-                
+
                 # Process query
                 await self.process_query(query)
-                
+
             except KeyboardInterrupt:
                 self.console.print("\n[cyan]Goodbye![/cyan]")
                 break
