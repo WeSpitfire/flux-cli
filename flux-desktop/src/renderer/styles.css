@@ -425,6 +425,8 @@ html, body {
   color: var(--text-primary);
   font-size: 14px;
   font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  line-height: 1.5;
+  max-height: calc(1.5em * 6); /* Allow up to 6 lines before scrolling */
 }
 
 #command-input::placeholder {
@@ -452,6 +454,14 @@ html, body {
 .send-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.send-btn.stop-mode {
+  background-color: var(--error);
+}
+
+.send-btn.stop-mode:hover {
+  background-color: #ff6b6b;
 }
 
 .input-hint {

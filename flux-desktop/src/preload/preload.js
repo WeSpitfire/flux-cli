@@ -6,6 +6,10 @@ window.flux = {
     ipcRenderer.send('flux-command', command);
   },
   
+  cancelCommand: () => {
+    ipcRenderer.send('flux-cancel');
+  },
+  
   onOutput: (callback) => {
     ipcRenderer.on('flux-output', (_, data) => {
       callback(data);
@@ -14,6 +18,12 @@ window.flux = {
   
   onError: (callback) => {
     ipcRenderer.on('flux-error', (_, data) => {
+      callback(data);
+    });
+  },
+  
+  onCancelled: (callback) => {
+    ipcRenderer.on('flux-cancelled', (_, data) => {
       callback(data);
     });
   }

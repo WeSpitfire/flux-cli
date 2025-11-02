@@ -27,7 +27,7 @@ from flux.core.code_validator import CodeValidator
 from flux.llm.provider_factory import create_provider
 from flux.llm.prompts import SYSTEM_PROMPT
 from flux.tools.base import ToolRegistry
-from flux.tools.file_ops import ReadFilesTool, WriteFileTool, EditFileTool
+from flux.tools.file_ops import ReadFilesTool, WriteFileTool, EditFileTool, MoveFileTool, DeleteFileTool
 from flux.tools.command import RunCommandTool
 from flux.tools.search import GrepSearchTool
 from flux.tools.filesystem import ListFilesTool, FindFilesTool
@@ -94,6 +94,8 @@ class CLI:
         self.tools.register(ReadFilesTool(cwd, workflow_enforcer=self.workflow, background_processor=self.bg_processor))
         self.tools.register(WriteFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval, code_validator=self.code_validator))
         self.tools.register(EditFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval, code_validator=self.code_validator))
+        self.tools.register(MoveFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
+        self.tools.register(DeleteFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
         self.tools.register(InsertAtLineTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
         self.tools.register(PreviewEditTool(cwd))
         self.tools.register(RunCommandTool(cwd))
@@ -613,9 +615,15 @@ class CLI:
             
             if is_error:
                 # Record failure
-                error_dict = result.get("error", {})
-                error_code = error_dict.get("code") if isinstance(error_dict, dict) else None
-                error_message = error_dict.get("message") if isinstance(error_dict, dict) else str(result.get("error"))
+                error_data = result.get("error", {})
+                # Handle both dict and string errors
+                if isinstance(error_data, dict):
+                    error_code = error_data.get("code")
+                    error_message = error_data.get("message", str(error_data))
+                else:
+                    # Error is a string directly
+                    error_code = None
+                    error_message = str(error_data)
                 
                 self.failure_tracker.record_failure(
                     tool_name=tool_name,
@@ -673,6 +681,16 @@ class CLI:
                 border_style="green"
             ))
             
+        except KeyboardInterrupt:
+            # User cancelled during tool execution
+            error_msg = "Operation cancelled by user"
+            self.llm.add_tool_result(tool_id, {"error": error_msg, "cancelled": True})
+            self.console.print(Panel(
+                error_msg,
+                title="✗ Cancelled",
+                border_style="yellow"
+            ))
+            # Don't re-raise - allow conversation to continue
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             self.llm.add_tool_result(tool_id, {"error": error_msg})
@@ -685,38 +703,48 @@ class CLI:
     
     async def continue_after_tools(self):
         """Continue conversation after tool execution."""
-        self.console.print("\n[bold cyan]Flux[/bold cyan]:", end=" ")
-        
-        response_text = ""
-        tool_uses = []
-        
-        # Build system prompt with project context
-        system_prompt = self._build_system_prompt()
-        
-        # Send empty message to get LLM's response to tool results
-        async for event in self.llm.send_message(
-            message="",
-            system_prompt=system_prompt,
-            tools=self.tools.get_all_schemas()
-        ):
-            if event["type"] == "text":
-                content = event["content"]
-                response_text += content
-                self.console.print(content, end="")
+        try:
+            self.console.print("\n[bold cyan]Flux[/bold cyan]:", end=" ")
             
-            elif event["type"] == "tool_use":
-                tool_uses.append(event)
-        
-        if response_text:
-            self.console.print()
-        
-        # Execute more tools if needed (recursive)
-        if tool_uses:
-            self.console.print()
-            for tool_use in tool_uses:
-                await self.execute_tool(tool_use)
+            response_text = ""
+            tool_uses = []
             
-            await self.continue_after_tools()
+            # Build system prompt with project context
+            system_prompt = self._build_system_prompt()
+            
+            # Send empty message to get LLM's response to tool results
+            async for event in self.llm.send_message(
+                message="",
+                system_prompt=system_prompt,
+                tools=self.tools.get_all_schemas()
+            ):
+                if event["type"] == "text":
+                    content = event["content"]
+                    response_text += content
+                    self.console.print(content, end="")
+                
+                elif event["type"] == "tool_use":
+                    tool_uses.append(event)
+            
+            if response_text:
+                self.console.print()
+            
+            # Execute more tools if needed (recursive)
+            if tool_uses:
+                self.console.print()
+                for tool_use in tool_uses:
+                    await self.execute_tool(tool_use)
+                
+                await self.continue_after_tools()
+        
+        except KeyboardInterrupt:
+            # User cancelled during continuation
+            self.console.print("\n[yellow]Operation cancelled[/yellow]")
+            # Don't re-raise - return to main loop
+        except Exception as e:
+            # Log error but don't crash - allow user to continue
+            self.console.print(f"\n[red]Error in conversation: {e}[/red]")
+            self.console.print("[dim]You can continue chatting - the error has been handled[/dim]")
     
     def _build_system_prompt(self, query: Optional[str] = None) -> str:
         """Build system prompt with project context and intelligence."""

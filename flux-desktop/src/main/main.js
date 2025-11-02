@@ -42,32 +42,50 @@ function createWindow () {
   fluxProcess.stdout.on('data', (data) => {
     const output = data.toString();
     console.log('[Flux stdout]:', output);
-    win.webContents.send('flux-output', output);
+    if (!win.isDestroyed()) {
+      win.webContents.send('flux-output', output);
+    }
   });
 
   fluxProcess.stderr.on('data', (data) => {
     const error = data.toString();
     console.error('[Flux stderr]:', error);
-    win.webContents.send('flux-error', error);
+    if (!win.isDestroyed()) {
+      win.webContents.send('flux-error', error);
+    }
   });
 
   fluxProcess.on('error', (error) => {
     const errorMsg = `Process error: ${error.message}\n\nTroubleshooting:\n- Ensure Flux CLI is installed: pip install -e .\n- Check that 'flux' command is in PATH\n- Try running 'flux' in terminal to verify`;
     console.error('[Flux process error]:', error);
-    win.webContents.send('flux-error', errorMsg);
+    if (!win.isDestroyed()) {
+      win.webContents.send('flux-error', errorMsg);
+    }
   });
 
   fluxProcess.on('close', (code) => {
     if (code !== 0) {
       const errorMsg = `Flux process exited with code ${code}`;
       console.error('[Flux close]:', errorMsg);
-      win.webContents.send('flux-error', errorMsg);
+      if (!win.isDestroyed()) {
+        win.webContents.send('flux-error', errorMsg);
+      }
     }
   });
 
   ipcMain.on('flux-command', (event, command) => {
     if (fluxProcess && !fluxProcess.killed) {
       fluxProcess.stdin.write(command + '\n');
+    }
+  });
+
+  ipcMain.on('flux-cancel', (event) => {
+    if (fluxProcess && !fluxProcess.killed) {
+      // Send Ctrl+C (SIGINT) to interrupt the process
+      fluxProcess.kill('SIGINT');
+      if (!win.isDestroyed()) {
+        win.webContents.send('flux-cancelled');
+      }
     }
   });
 

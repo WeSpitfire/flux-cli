@@ -143,10 +143,55 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// Toggle send button UI between send and stop modes
+function updateSendButton(isProcessing) {
+  const sendIcon = sendBtn.querySelector('.send-icon');
+  const stopIcon = sendBtn.querySelector('.stop-icon');
+  
+  if (isProcessing) {
+    sendIcon.style.display = 'none';
+    stopIcon.style.display = 'block';
+    sendBtn.title = 'Stop';
+    sendBtn.classList.add('stop-mode');
+  } else {
+    sendIcon.style.display = 'block';
+    stopIcon.style.display = 'none';
+    sendBtn.title = 'Send (Enter)';
+    sendBtn.classList.remove('stop-mode');
+  }
+}
+
+// Cancel command
+function cancelCommand() {
+  if (!state.isProcessing) return;
+  
+  // Send cancel signal to backend
+  window.flux.cancelCommand();
+  
+  // Clear output queue
+  outputQueue = [];
+  skipAnimation = false;
+  isTyping = false;
+  
+  // Update UI
+  terminal.writeln('\r\n\x1b[33m^C Command cancelled\x1b[0m');
+  terminal.scrollToBottom();
+  updateStatus('', 'Ready');
+  state.isProcessing = false;
+  updateSendButton(false);
+  stopInactivityCheck(); // Stop checking for inactivity
+}
+
 // Send command
 function sendCommand() {
+  // If processing, stop instead of send
+  if (state.isProcessing) {
+    cancelCommand();
+    return;
+  }
+  
   const command = commandInput.value.trim();
-  if (!command || state.isProcessing) return;
+  if (!command) return;
   
   // Clear input
   commandInput.value = '';
@@ -154,6 +199,7 @@ function sendCommand() {
   // Update status
   updateStatus('processing', 'Processing...');
   state.isProcessing = true;
+  updateSendButton(true);
   
   // Write command to terminal with nice formatting
   terminal.writeln(`\r\n\x1b[1;36mYou: \x1b[0m${command}`);
@@ -165,6 +211,9 @@ function sendCommand() {
   
   // Send to backend
   window.flux.sendCommand(command);
+  
+  // Start inactivity detection (resets processing state if no output for 3 seconds)
+  startInactivityCheck();
 }
 
 // Typewriter effect for readable output
@@ -172,6 +221,8 @@ let outputQueue = [];
 let isTyping = false;
 let TYPING_SPEED = 15; // milliseconds per character (adjustable: lower = faster)
 let skipAnimation = false;
+let lastOutputTime = null;
+let inactivityCheckInterval = null;
 
 function typewriterEffect() {
   if (outputQueue.length === 0) {
@@ -179,6 +230,8 @@ function typewriterEffect() {
     skipAnimation = false;
     updateStatus('', 'Ready');
     state.isProcessing = false;
+    updateSendButton(false);
+    stopInactivityCheck(); // Stop checking for inactivity
     return;
   }
   
@@ -194,6 +247,8 @@ function typewriterEffect() {
     skipAnimation = false;
     updateStatus('', 'Ready');
     state.isProcessing = false;
+    updateSendButton(false);
+    stopInactivityCheck(); // Stop checking for inactivity
     return;
   }
   
@@ -208,9 +263,45 @@ function typewriterEffect() {
   setTimeout(typewriterEffect, TYPING_SPEED);
 }
 
+// Inactivity detection - reset state if no output for 3 seconds after last output
+function startInactivityCheck() {
+  lastOutputTime = Date.now();
+  
+  // Clear existing interval
+  if (inactivityCheckInterval) {
+    clearInterval(inactivityCheckInterval);
+  }
+  
+  inactivityCheckInterval = setInterval(() => {
+    // If we're still processing but haven't received output in 3 seconds
+    // and there's no more output queued, assume command finished
+    if (state.isProcessing && lastOutputTime) {
+      const timeSinceOutput = Date.now() - lastOutputTime;
+      if (timeSinceOutput > 3000 && outputQueue.length === 0 && !isTyping) {
+        console.log('No output for 3s, resetting processing state');
+        clearInterval(inactivityCheckInterval);
+        inactivityCheckInterval = null;
+        state.isProcessing = false;
+        updateSendButton(false);
+        updateStatus('', 'Ready');
+      }
+    }
+  }, 500); // Check every 500ms
+}
+
+function stopInactivityCheck() {
+  if (inactivityCheckInterval) {
+    clearInterval(inactivityCheckInterval);
+    inactivityCheckInterval = null;
+  }
+  lastOutputTime = null;
+}
+
 // Handle flux output with typewriter effect
 window.flux.onOutput((data) => {
   console.log('Received flux output:', data.length, 'chars');
+  lastOutputTime = Date.now(); // Update last output time
+  
   // Add characters to queue
   for (let i = 0; i < data.length; i++) {
     outputQueue.push(data[i]);
@@ -227,6 +318,20 @@ window.flux.onError((data) => {
   terminal.write(`\x1b[31m${data}\x1b[0m`);
   updateStatus('error', 'Error');
   state.isProcessing = false;
+  updateSendButton(false);
+  stopInactivityCheck(); // Stop checking for inactivity
+});
+
+// Handle flux cancellation
+window.flux.onCancelled(() => {
+  // Cancellation already handled in cancelCommand()
+  // This is for backend confirmation if needed
+});
+
+// Auto-grow textarea
+commandInput.addEventListener('input', () => {
+  commandInput.style.height = 'auto';
+  commandInput.style.height = commandInput.scrollHeight + 'px';
 });
 
 // Input event handlers
@@ -237,16 +342,18 @@ commandInput.addEventListener('keydown', (e) => {
     sendCommand();
   }
   
+  // Skip animation on Ctrl+C or Escape
+  if ((e.key === 'c' && (e.ctrlKey || e.metaKey)) || e.key === 'Escape') {
+    if (isTyping) {
+      e.preventDefault();
+      skipAnimation = true;
+    }
+  }
+  
   // Clear on Ctrl+K
   if (e.key === 'k' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
     terminal.clear();
-  }
-  
-  // Skip animation on Escape
-  if (e.key === 'Escape' && isTyping) {
-    e.preventDefault();
-    skipAnimation = true;
   }
   
   // History navigation with Up/Down arrows

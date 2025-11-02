@@ -70,6 +70,35 @@ remote.getCurrentWindow().webContents.on('ipc-message', (event, channel, ...args
 // Track file explorer state
 // (implement this)
 
+// Initialize UI for model selection
+function initializeUI() {
+  const modelSelect = document.createElement('select');
+  modelSelect.id = 'modelSelect';
+
+  const openAIOption = document.createElement('option');
+  openAIOption.value = 'openai';
+  openAIOption.text = 'OpenAI';
+  modelSelect.appendChild(openAIOption);
+
+  const claudeOption = document.createElement('option');
+  claudeOption.value = 'claude';
+  claudeOption.text = 'Claude';
+  modelSelect.appendChild(claudeOption);
+
+  document.body.appendChild(modelSelect);
+
+  // Add event listener to handle model selection
+  modelSelect.addEventListener('change', (event) => {
+    const selectedModel = event.target.value;
+    console.log(`Selected model: ${selectedModel}`);
+    // You can send an IPC message here to update the main process
+    // ipcRenderer.send('model-switch', selectedModel);
+  });
+}
+
+// Call the function to initialize the UI
+initializeUI();
+
 // Expose session API
 window.session = {
   save: () => window.session.save(sessionTracker.getCurrentState()),

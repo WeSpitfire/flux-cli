@@ -200,6 +200,14 @@ class WriteFileTool(Tool):
     def description(self) -> str:
         return """Write content to a file, creating it if it doesn't exist. Overwrites existing files.
         
+CRITICAL FOR MOVING FILES: You MUST use read_files FIRST to get actual content before moving.
+NEVER write placeholder content like 'test_file.py content' - this destroys the file!
+
+WORKFLOW for moving files:
+1. read_files(['source.py']) - Get actual content
+2. write_file('destination.py', actual_content) - Write with real content
+3. Use separate tool to delete source if move successful
+
 USAGE: Provide complete file path relative to current directory (e.g., 'flux/core/validators.py').
 AUTO-ROLLBACK: Syntax errors automatically rolled back for Python files.
 ON ERROR: Check file permissions and path validity."""
@@ -325,30 +333,63 @@ ON ERROR: Check file permissions and path validity."""
             if file_path.suffix == '.py' and self.code_validator:
                 validation_result = self.code_validator.validate_file_operation(file_path, "write")
                 if not validation_result.is_valid:
-                    # Add validation warnings/errors to response
-                    result = {
-                        "success": True,
-                        "path": str(file_path),
-                        "bytes_written": len(content.encode('utf-8')),
-                        "validation_warnings": [
-                            f"{e['message']}" for e in validation_result.errors
-                        ]
-                    }
-                    if validation_result.suggestions:
-                        result["validation_suggestions"] = validation_result.suggestions
+                    # Check severity - if there are syntax errors, this is critical
+                    has_syntax_error = any(
+                        'syntax' in e.get('message', '').lower() or 
+                        e.get('type') == 'syntax_error'
+                        for e in validation_result.errors
+                    )
                     
-                    # Record undo snapshot
-                    if self.undo_manager:
-                        desc = "Created" if old_content is None else "Overwrote"
-                        self.undo_manager.snapshot_operation(
-                            operation="write",
-                            file_path=file_path,
-                            old_content=old_content,
-                            new_content=content,
-                            description=f"{desc} {file_path.name}"
-                        )
-                    
-                    return result
+                    if has_syntax_error:
+                        # CRITICAL: Syntax error - return as error, not success
+                        # Rollback if we have old content
+                        if old_content is not None:
+                            with open(file_path, 'w', encoding='utf-8') as f:
+                                f.write(old_content)
+                            return {
+                                "error": "Syntax error in written file - changes rolled back",
+                                "syntax_errors": [
+                                    f"{e['message']}" for e in validation_result.errors
+                                ],
+                                "rolled_back": True,
+                                "path": str(file_path)
+                            }
+                        else:
+                            # New file with syntax error - delete it
+                            file_path.unlink()
+                            return {
+                                "error": "Syntax error in new file - file deleted",
+                                "syntax_errors": [
+                                    f"{e['message']}" for e in validation_result.errors
+                                ],
+                                "file_deleted": True,
+                                "path": str(file_path)
+                            }
+                    else:
+                        # Non-critical warnings (imports, etc) - report as warnings
+                        result = {
+                            "success": True,
+                            "path": str(file_path),
+                            "bytes_written": len(content.encode('utf-8')),
+                            "validation_warnings": [
+                                f"{e['message']}" for e in validation_result.errors
+                            ]
+                        }
+                        if validation_result.suggestions:
+                            result["validation_suggestions"] = validation_result.suggestions
+                        
+                        # Record undo snapshot
+                        if self.undo_manager:
+                            desc = "Created" if old_content is None else "Overwrote"
+                            self.undo_manager.snapshot_operation(
+                                operation="write",
+                                file_path=file_path,
+                                old_content=old_content,
+                                new_content=content,
+                                description=f"{desc} {file_path.name}"
+                            )
+                        
+                        return result
             
             # Record undo snapshot
             if self.undo_manager:
@@ -368,6 +409,317 @@ ON ERROR: Check file permissions and path validity."""
             }
         except Exception as e:
             return {"error": str(e)}
+
+
+class MoveFileTool(Tool):
+    """Tool for moving files safely with validation."""
+    
+    def __init__(self, cwd: Path, undo_manager=None, workflow_enforcer=None, approval_manager=None, dry_run=False):
+        """Initialize with current working directory."""
+        self.cwd = cwd
+        self.undo_manager = undo_manager
+        self.workflow = workflow_enforcer
+        self.approval = approval_manager
+        self.dry_run = dry_run
+    
+    @property
+    def name(self) -> str:
+        return "move_file"
+    
+    @property
+    def description(self) -> str:
+        return """Move or rename a file from source to destination. Validates content before deleting source.
+        
+SAFETY: Reads source, writes to destination, validates, then deletes source only if successful.
+USE THIS instead of write_file + manual delete when moving files.
+ON ERROR: Source file is preserved if move fails."""
+    
+    @property
+    def parameters(self) -> List[ToolParameter]:
+        return [
+            ToolParameter(
+                name="source",
+                type="string",
+                description="Source file path (relative to current directory or absolute)",
+                required=True
+            ),
+            ToolParameter(
+                name="destination",
+                type="string",
+                description="Destination file path (relative to current directory or absolute)",
+                required=True
+            ),
+            ToolParameter(
+                name="dry_run",
+                type="boolean",
+                description="If true, show what would be done without executing",
+                required=False
+            )
+        ]
+    
+    async def execute(self, source: str, destination: str, dry_run: bool = None) -> Dict[str, Any]:
+        """Move file from source to destination."""
+        # Use instance dry_run if parameter not provided
+        if dry_run is None:
+            dry_run = self.dry_run
+        # Validate both paths
+        is_valid_src, error_msg_src = validate_file_path(source, self.cwd, "read")
+        if not is_valid_src:
+            return {
+                "error": {
+                    "code": "INVALID_SOURCE_PATH",
+                    "message": error_msg_src,
+                    "path": source
+                }
+            }
+        
+        is_valid_dst, error_msg_dst = validate_file_path(destination, self.cwd, "write")
+        if not is_valid_dst:
+            return {
+                "error": {
+                    "code": "INVALID_DESTINATION_PATH",
+                    "message": error_msg_dst,
+                    "path": destination
+                }
+            }
+        
+        try:
+            src_path = Path(source)
+            if not src_path.is_absolute():
+                src_path = self.cwd / src_path
+            
+            dst_path = Path(destination)
+            if not dst_path.is_absolute():
+                dst_path = self.cwd / dst_path
+            
+            # Check source exists
+            if not src_path.exists():
+                return {"error": f"Source file not found: {source}"}
+            
+            if not src_path.is_file():
+                return {"error": f"Source is not a file: {source}"}
+            
+            # Check destination doesn't exist
+            if dst_path.exists():
+                return {
+                    "error": f"Destination already exists: {destination}",
+                    "suggestion": "Use write_file or edit_file if you want to overwrite."
+                }
+            
+            # Check workflow enforcement
+            if self.workflow:
+                check = self.workflow.check_modification_allowed(src_path, "move_file")
+                if not check["allowed"]:
+                    return {
+                        "error": check["reason"],
+                        "suggestions": check.get("suggestions", []),
+                        "workflow_blocked": True
+                    }
+            
+            # Read source content
+            with open(src_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # DRY RUN: Show what would be done without executing
+            if dry_run:
+                # Validate syntax if Python file
+                syntax_valid = True
+                if dst_path.suffix == '.py':
+                    validation = SyntaxChecker.check_file(src_path, content)
+                    syntax_valid = validation["valid"]
+                
+                return {
+                    "dry_run": True,
+                    "would_move": {
+                        "source": str(src_path),
+                        "destination": str(dst_path),
+                        "bytes": len(content.encode('utf-8')),
+                        "lines": len(content.splitlines()),
+                        "syntax_valid": syntax_valid,
+                        "destination_dir_exists": dst_path.parent.exists(),
+                        "would_create_dirs": not dst_path.parent.exists()
+                    },
+                    "message": "Dry run: no changes made"
+                }
+            
+            # Request approval if approval manager is present
+            if self.approval:
+                approved = self.approval.request_approval(
+                    operation="move_file",
+                    file_path=src_path,
+                    old_content=content,
+                    new_content=f"Moving to: {destination}",
+                    context={
+                        "action": "Moving",
+                        "from": str(src_path),
+                        "to": str(dst_path),
+                        "size": f"{len(content)} bytes"
+                    }
+                )
+                
+                if not approved:
+                    return {
+                        "error": "Move rejected by user",
+                        "rejected": True,
+                        "source": str(src_path)
+                    }
+            
+            # Create destination directory if needed
+            dst_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Write to destination
+            with open(dst_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            # Validate destination file (for Python files)
+            if dst_path.suffix == '.py':
+                validation = SyntaxChecker.check_file(dst_path, content)
+                if not validation["valid"]:
+                    # Delete invalid destination
+                    dst_path.unlink()
+                    return {
+                        "error": "Moved file has syntax error - move aborted",
+                        "syntax_error": validation.get("error"),
+                        "source_preserved": True,
+                        "source": str(src_path)
+                    }
+            
+            # Record undo snapshot before deleting source
+            if self.undo_manager:
+                self.undo_manager.snapshot_operation(
+                    operation="move",
+                    file_path=src_path,
+                    old_content=content,
+                    new_content=None,  # File deleted
+                    description=f"Moved {src_path.name} to {dst_path}"
+                )
+            
+            # Delete source only after successful validation
+            src_path.unlink()
+            
+            return {
+                "success": True,
+                "source": str(src_path),
+                "destination": str(dst_path),
+                "bytes": len(content.encode('utf-8'))
+            }
+        except Exception as e:
+            return {"error": f"Move failed: {str(e)}"}
+
+
+class DeleteFileTool(Tool):
+    """Tool for deleting files with safety checks."""
+    
+    def __init__(self, cwd: Path, undo_manager=None, workflow_enforcer=None, approval_manager=None):
+        """Initialize with current working directory."""
+        self.cwd = cwd
+        self.undo_manager = undo_manager
+        self.workflow = workflow_enforcer
+        self.approval = approval_manager
+    
+    @property
+    def name(self) -> str:
+        return "delete_file"
+    
+    @property
+    def description(self) -> str:
+        return """Delete a file with undo support.
+        
+SAFETY: Content is backed up in undo manager before deletion.
+WARNING: Use with caution - deletion is immediate but can be undone.
+ON ERROR: Check file path and permissions."""
+    
+    @property
+    def parameters(self) -> List[ToolParameter]:
+        return [
+            ToolParameter(
+                name="path",
+                type="string",
+                description="File path to delete (relative to current directory or absolute)",
+                required=True
+            )
+        ]
+    
+    async def execute(self, path: str) -> Dict[str, Any]:
+        """Delete a file."""
+        # Validate path
+        is_valid, error_msg = validate_file_path(path, self.cwd, "delete")
+        if not is_valid:
+            return {
+                "error": {
+                    "code": "INVALID_PATH",
+                    "message": error_msg,
+                    "path": path
+                }
+            }
+        
+        try:
+            file_path = Path(path)
+            if not file_path.is_absolute():
+                file_path = self.cwd / file_path
+            
+            # Check file exists
+            if not file_path.exists():
+                return {"error": f"File not found: {path}"}
+            
+            if not file_path.is_file():
+                return {"error": f"Path is not a file: {path}"}
+            
+            # Check workflow enforcement
+            if self.workflow:
+                check = self.workflow.check_modification_allowed(file_path, "delete_file")
+                if not check["allowed"]:
+                    return {
+                        "error": check["reason"],
+                        "suggestions": check.get("suggestions", []),
+                        "workflow_blocked": True
+                    }
+            
+            # Read content for undo
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Request approval if approval manager is present
+            if self.approval:
+                approved = self.approval.request_approval(
+                    operation="delete_file",
+                    file_path=file_path,
+                    old_content=content,
+                    new_content=None,
+                    context={
+                        "action": "Deleting",
+                        "size": f"{len(content)} bytes",
+                        "lines": len(content.splitlines())
+                    }
+                )
+                
+                if not approved:
+                    return {
+                        "error": "Deletion rejected by user",
+                        "rejected": True,
+                        "path": str(file_path)
+                    }
+            
+            # Record undo snapshot
+            if self.undo_manager:
+                self.undo_manager.snapshot_operation(
+                    operation="delete",
+                    file_path=file_path,
+                    old_content=content,
+                    new_content=None,
+                    description=f"Deleted {file_path.name}"
+                )
+            
+            # Delete file
+            file_path.unlink()
+            
+            return {
+                "success": True,
+                "path": str(file_path),
+                "can_undo": self.undo_manager is not None
+            }
+        except Exception as e:
+            return {"error": f"Delete failed: {str(e)}"}
 
 
 class EditFileTool(Tool):
