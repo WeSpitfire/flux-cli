@@ -89,7 +89,11 @@ function initializeTerminalForTab(tabId, containerElement) {
   
   // Open terminal in container
   terminal.open(containerElement);
-  fitAddon.fit();
+  
+  // Fit after a short delay to ensure container is visible
+  setTimeout(() => {
+    fitAddon.fit();
+  }, 50);
   
   // Welcome message
   terminal.writeln('\x1b[1;34m╔════════════════════════════════════════════╗\x1b[0m');

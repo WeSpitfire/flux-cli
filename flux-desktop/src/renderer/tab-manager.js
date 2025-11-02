@@ -134,6 +134,14 @@ class TabManager {
     // Initialize terminal for this tab if not yet created
     if (!newTab.terminal && window.initializeTerminalForTab) {
       window.initializeTerminalForTab(tabId, newTab.terminalElement);
+    } else if (newTab.terminal) {
+      // Fit the terminal when switching to it
+      const terminalData = window.terminals ? window.terminals.get(tabId) : null;
+      if (terminalData && terminalData.fitAddon) {
+        setTimeout(() => {
+          terminalData.fitAddon.fit();
+        }, 10);
+      }
     }
 
     // Update history UI for new active tab
