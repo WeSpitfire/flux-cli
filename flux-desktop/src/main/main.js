@@ -22,11 +22,16 @@ function createWindow () {
 
   // Helper to spawn a new Flux process for a tab
   function spawnFluxForTab(tabId, cwd) {
-    const projectRoot = path.join(__dirname, '../../..');
-    const venvFluxPath = path.join(projectRoot, 'venv', 'bin', 'flux');
-    const fluxCommand = fs.existsSync(venvFluxPath) ? venvFluxPath : 'flux';
+    const projectRoot = path.resolve(path.join(__dirname, '../../..'));
+    const venvFluxPath = path.resolve(path.join(projectRoot, 'venv', 'bin', 'flux'));
+    const fluxExists = fs.existsSync(venvFluxPath);
+    const fluxCommand = fluxExists ? venvFluxPath : 'flux';
     
-    console.log(`Spawning Flux CLI for tab ${tabId} in:`, cwd || projectRoot);
+    console.log(`[Tab ${tabId}] Project root:`, projectRoot);
+    console.log(`[Tab ${tabId}] Venv flux path:`, venvFluxPath);
+    console.log(`[Tab ${tabId}] Flux exists:`, fluxExists);
+    console.log(`[Tab ${tabId}] Using command:`, fluxCommand);
+    console.log(`[Tab ${tabId}] Working directory:`, cwd || projectRoot);
     
     const fluxProcess = spawn(fluxCommand, [], {
       cwd: cwd || projectRoot,
