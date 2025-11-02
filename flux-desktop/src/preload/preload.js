@@ -30,11 +30,18 @@ window.flux = {
     });
   },
   
+  getCodebaseStats: () => ipcRenderer.invoke('get-codebase-stats'),
+
   onCancelled: (callback) => {
     ipcRenderer.on('flux-cancelled', (_, { tabId }) => {
       callback(tabId);
     });
   }
+};
+
+// Expose codebase API
+window.codebase = {
+  getGraph: () => ipcRenderer.invoke('get-codebase-stats')
 };
 
 // Expose file system API

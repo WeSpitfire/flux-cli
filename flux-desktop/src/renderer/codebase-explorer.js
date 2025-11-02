@@ -64,35 +64,45 @@ class CodebaseExplorer {
   }
 
   async fetchGraphData() {
-    // For now, return mock data that matches Flux CLI structure
-    // TODO: Replace with actual IPC handler: window.codebase.getGraph()
-    
+    try {
+      // Try to fetch real data from Flux CLI if available
+      if (window.codebase && window.codebase.getGraph) {
+        const graphData = await window.codebase.getGraph();
+        return graphData;
+      }
+      
+      // Fall back to mock data for now
+      return this.getMockData();
+    } catch (error) {
+      console.warn('Using mock data for codebase explorer:', error.message);
+      return this.getMockData();
+    }
+  }
+  
+  getMockData() {
+    // Mock data for demonstration
     return {
       stats: {
-        totalFiles: 100,
-        totalEntities: 593,
-        contextTokens: 3247
+        totalFiles: 247,
+        totalEntities: 1834,
+        contextTokens: 125000
       },
       hotFiles: [
-        { path: 'src/renderer/renderer.js', changes: 47, lastModified: '2 hours ago' },
-        { path: 'src/renderer/styles.css', changes: 32, lastModified: '1 hour ago' },
-        { path: 'src/main/main.js', changes: 28, lastModified: '3 hours ago' },
-        { path: 'flux/core/codebase_intelligence.py', changes: 19, lastModified: '1 day ago' },
-        { path: 'src/renderer/index.html', changes: 15, lastModified: '2 hours ago' }
+        { path: 'src/renderer/renderer.js', changes: 15, lastModified: '2 hours ago' },
+        { path: 'src/renderer/terminal-formatter.js', changes: 8, lastModified: '3 hours ago' },
+        { path: 'src/renderer/styles.css', changes: 12, lastModified: '1 hour ago' },
+        { path: 'src/main/main.js', changes: 5, lastModified: '4 hours ago' }
       ],
       dependencies: [
-        { name: 'electron', type: 'npm', usedBy: 15 },
+        { name: 'electron', type: 'npm', usedBy: 12 },
         { name: 'xterm', type: 'npm', usedBy: 8 },
-        { name: 'anthropic', type: 'pip', usedBy: 12 },
-        { name: 'openai', type: 'pip', usedBy: 10 },
-        { name: 'networkx', type: 'pip', usedBy: 5 }
+        { name: 'xterm-addon-fit', type: 'npm', usedBy: 3 }
       ],
       entities: [
-        { name: 'CodebaseGraph', type: 'class', file: 'flux/core/codebase_intelligence.py', line: 46 },
-        { name: 'ContextManager', type: 'class', file: 'flux/core/context_manager.py', line: 20 },
-        { name: 'sendCommand', type: 'function', file: 'src/renderer/renderer.js', line: 189 },
-        { name: 'createWindow', type: 'function', file: 'src/main/main.js', line: 8 },
-        { name: 'FileManager', type: 'class', file: 'src/renderer/file-explorer.js', line: 3 }
+        { name: 'Terminal', type: 'class', file: 'src/renderer/renderer.js', line: 42 },
+        { name: 'TerminalFormatter', type: 'class', file: 'src/renderer/terminal-formatter.js', line: 6 },
+        { name: 'initializeApp', type: 'function', file: 'src/renderer/renderer.js', line: 21 },
+        { name: 'formatOutput', type: 'function', file: 'src/renderer/terminal-formatter.js', line: 52 }
       ]
     };
   }

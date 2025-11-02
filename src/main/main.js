@@ -42,6 +42,35 @@ app.on('ready', () => {
   }
 });
 
+// IPC handler to get codebase stats from Flux CLI
+ipcMain.handle('get-codebase-stats', async () => {
+  return new Promise((resolve, reject) => {
+    const fluxProcess = spawn('flux', ['--stats'], { shell: true });
+
+    let output = '';
+    fluxProcess.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+
+    fluxProcess.stderr.on('data', (data) => {
+      console.error('Flux CLI error:', data.toString());
+    });
+
+    fluxProcess.on('close', (code) => {
+      if (code === 0) {
+        try {
+          const stats = JSON.parse(output);
+          resolve(stats);
+        } catch (error) {
+          reject('Failed to parse stats output');
+        }
+      } else {
+        reject('Flux CLI exited with code ' + code);
+      }
+    });
+  });
+});
+
 app.whenReady().then(createWindow);
 
 // ... (existing code)

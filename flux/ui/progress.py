@@ -176,7 +176,7 @@ class SimpleProgress:
         """
         self.progress = Progress(
             SpinnerColumn(),
-            TextColumn("[bold blue]{task.description}"),
+            TextColumn("[bold blue]{task.description}", justify="right"),
             BarColumn() if total else TextColumn(""),
             console=self.console,
             transient=False

@@ -265,6 +265,95 @@ ipcMain.handle('search-files', async (event, { directory, query, maxResults = 50
   return results;
 });
 
+// IPC handler to get codebase stats from Flux CLI
+ipcMain.handle('get-codebase-stats', async () => {
+  return new Promise((resolve, reject) => {
+    const fluxProcess = spawn('flux', ['--stats'], { shell: true });
+
+    let output = '';
+    fluxProcess.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+
+    fluxProcess.stderr.on('data', (data) => {
+      console.error('Flux CLI error:', data.toString());
+    });
+
+    fluxProcess.on('close', (code) => {
+      if (code === 0) {
+        try {
+          const stats = JSON.parse(output);
+          resolve(stats);
+        } catch (error) {
+          reject('Failed to parse stats output');
+        }
+      } else {
+        reject('Flux CLI exited with code ' + code);
+      }
+    });
+  });
+});
+
+// IPC handler to request graph data from a specific Flux process
+ipcMain.handle('request-graph-data', async (event, tabId) => {
+  return new Promise((resolve, reject) => {
+    const fluxData = fluxProcesses.get(tabId);
+    if (fluxData && fluxData.process && !fluxData.process.killed) {
+      let output = '';
+      fluxData.process.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      fluxData.process.stdin.write('get-graph-data\n');
+
+      fluxData.process.on('close', (code) => {
+        if (code === 0) {
+          try {
+            const graphData = JSON.parse(output);
+            resolve(graphData);
+          } catch (error) {
+            reject('Failed to parse graph data output');
+          }
+        } else {
+          reject('Flux process exited with code ' + code);
+        }
+      });
+    } else {
+      reject('No flux process found for tab ' + tabId);
+    }
+  });
+});
+
+// IPC handler to get complete graph data from a specific Flux process
+ipcMain.handle('get-codebase-graph', async (event, tabId) => {
+  return new Promise((resolve, reject) => {
+    const fluxData = fluxProcesses.get(tabId);
+    if (fluxData && fluxData.process && !fluxData.process.killed) {
+      let output = '';
+      fluxData.process.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      fluxData.process.stdin.write('get-complete-graph\n');
+
+      fluxData.process.on('close', (code) => {
+        if (code === 0) {
+          try {
+            const graphData = JSON.parse(output);
+            resolve(graphData);
+          } catch (error) {
+            reject('Failed to parse graph data output');
+          }
+        } else {
+          reject('Flux process exited with code ' + code);
+        }
+      });
+    } else {
+      reject('No flux process found for tab ' + tabId);
+    }
+  });
+});
+
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {

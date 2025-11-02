@@ -7,6 +7,7 @@ const { WebLinksAddon } = require('xterm-addon-web-links');
 const terminals = new Map(); // tabId -> terminal instance
 let tabManager = null;
 let sessionManager = null;
+let terminalFormatter = null;
 
 // Expose terminals globally for session management
 window.terminals = terminals;
@@ -25,6 +26,9 @@ function initializeApp() {
   // Expose globally for cross-file access
   window.tabManager = tabManager;
   
+  // Initialize Terminal Formatter
+  terminalFormatter = new window.TerminalFormatter();
+  
   // Expose initialization function for TabManager to call
   window.initializeTerminalForTab = initializeTerminalForTab;
   
@@ -41,36 +45,39 @@ function initializeApp() {
 function getTerminalConfig() {
   return {
     theme: {
-      background: '#1a1b26',
-      foreground: '#c0caf5',
-      cursor: '#c0caf5',
-      cursorAccent: '#1a1b26',
-      selection: 'rgba(122, 162, 247, 0.3)',
-      black: '#1a1b26',
-      red: '#f7768e',
-      green: '#9ece6a',
-      yellow: '#e0af68',
-      blue: '#7aa2f7',
-      magenta: '#bb9af7',
-      cyan: '#7dcfff',
-      white: '#c0caf5',
-      brightBlack: '#414868',
-      brightRed: '#f7768e',
-      brightGreen: '#9ece6a',
-      brightYellow: '#e0af68',
-      brightBlue: '#7aa2f7',
-      brightMagenta: '#bb9af7',
-      brightCyan: '#7dcfff',
-      brightWhite: '#c0caf5'
+      background: '#0d1117',
+      foreground: '#e6edf3',
+      cursor: '#58a6ff',
+      cursorAccent: '#0d1117',
+      selection: 'rgba(88, 166, 255, 0.3)',
+      black: '#0d1117',
+      red: '#ff7b72',
+      green: '#3fb950',
+      yellow: '#d29922',
+      blue: '#58a6ff',
+      magenta: '#bc8cff',
+      cyan: '#39c5cf',
+      white: '#e6edf3',
+      brightBlack: '#6e7681',
+      brightRed: '#ffa198',
+      brightGreen: '#56d364',
+      brightYellow: '#e3b341',
+      brightBlue: '#79c0ff',
+      brightMagenta: '#d2a8ff',
+      brightCyan: '#56d4dd',
+      brightWhite: '#f0f6fc'
     },
-    fontFamily: "'SF Mono', 'Monaco', 'Cascadia Code', 'Courier New', monospace",
+    fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', 'Monaco', monospace",
     fontSize: 14,
-    lineHeight: 1.5,
+    lineHeight: 1.6,
+    letterSpacing: 0.5,
     cursorBlink: true,
     cursorStyle: 'block',
     scrollback: 10000,
     allowTransparency: true,
-    convertEol: true
+    convertEol: true,
+    fontWeight: 400,
+    fontWeightBold: 600
   };
 }
 
@@ -95,13 +102,19 @@ function initializeTerminalForTab(tabId, containerElement) {
     fitAddon.fit();
   }, 50);
   
-  // Welcome message
-  terminal.writeln('\x1b[1;34m╔════════════════════════════════════════════╗\x1b[0m');
-  terminal.writeln('\x1b[1;34m║\x1b[0m     \x1b[1;36mFlux AI Coding Assistant\x1b[0m            \x1b[1;34m║\x1b[0m');
-  terminal.writeln('\x1b[1;34m╚════════════════════════════════════════════╝\x1b[0m');
+  // Welcome message with enhanced styling
   terminal.writeln('');
-  terminal.writeln('\x1b[32m✓\x1b[0m Ready to assist with your coding tasks');
-  terminal.writeln('\x1b[2mType a command below or ask Flux anything...\x1b[0m');
+  terminal.writeln('\x1b[38;5;147m╭─────────────────────────────────────────────────────╮\x1b[0m');
+  terminal.writeln('\x1b[38;5;147m│\x1b[0m                                                     \x1b[38;5;147m│\x1b[0m');
+  terminal.writeln('\x1b[38;5;147m│\x1b[0m      \x1b[1;38;5;153m⚡ Flux AI Coding Assistant\x1b[0m                \x1b[38;5;147m│\x1b[0m');
+  terminal.writeln('\x1b[38;5;147m│\x1b[0m      \x1b[38;5;110mThe terminal that has your back\x1b[0m         \x1b[38;5;147m│\x1b[0m');
+  terminal.writeln('\x1b[38;5;147m│\x1b[0m                                                     \x1b[38;5;147m│\x1b[0m');
+  terminal.writeln('\x1b[38;5;147m╰─────────────────────────────────────────────────────╯\x1b[0m');
+  terminal.writeln('');
+  terminal.writeln('  \x1b[38;5;83m✓\x1b[0m \x1b[1mReady\x1b[0m - Ask Flux anything or type a command');
+  terminal.writeln('  \x1b[38;5;110mTip: Press \x1b[1;38;5;153mCmd+K\x1b[0m\x1b[38;5;110m for the command palette\x1b[0m');
+  terminal.writeln('');
+  terminal.writeln('\x1b[2m' + '─'.repeat(terminal.cols) + '\x1b[0m');
   terminal.writeln('');
   
   // Store terminal instance
@@ -114,7 +127,10 @@ function initializeTerminalForTab(tabId, containerElement) {
       isProcessing: false,
       outputQueue: [],
       isTyping: false,
-      typingTimer: null
+      typingTimer: null,
+      hasFluxHeader: false,
+      outputBuffer: '', // Buffer for formatting
+      lastOutputTime: Date.now()
     }
   });
   
@@ -151,6 +167,21 @@ const statusDot = document.getElementById('status-dot');
 const statusText = document.getElementById('status-text');
 const typingIndicator = document.getElementById('typing-indicator');
 
+// Auto-expand textarea as user types
+function autoExpandTextarea() {
+  commandInput.style.height = 'auto';
+  commandInput.style.height = Math.min(commandInput.scrollHeight, 200) + 'px';
+}
+
+// Setup textarea auto-expand
+if (commandInput) {
+  commandInput.addEventListener('input', autoExpandTextarea);
+  // Also handle paste
+  commandInput.addEventListener('paste', () => {
+    setTimeout(autoExpandTextarea, 0);
+  });
+}
+
 // Show/hide typing indicator
 function showTypingIndicator() {
   if (typingIndicator) {
@@ -164,16 +195,63 @@ function hideTypingIndicator() {
   }
 }
 
-// Update status
+// Status messages with context
+const statusMessages = [
+  { icon: '🔍', text: 'Analyzing your request...', type: 'analyzing' },
+  { icon: '📚', text: 'Reading codebase...', type: 'reading' },
+  { icon: '🤔', text: 'Thinking...', type: 'thinking' },
+  { icon: '✏️', text: 'Writing code...', type: 'writing' },
+  { icon: '🔧', text: 'Making changes...', type: 'modifying' },
+  { icon: '🧪', text: 'Testing...', type: 'testing' },
+  { icon: '📝', text: 'Formatting output...', type: 'formatting' }
+];
+
+let currentStatusIndex = 0;
+let statusRotationInterval = null;
+
+// Update status with rotation
 function updateStatus(status, text) {
   statusDot.className = `status-dot ${status}`;
-  statusText.textContent = text;
   
-  // Show typing indicator when processing
+  // If processing, rotate through status messages
   if (status === 'processing') {
     showTypingIndicator();
+    startStatusRotation();
   } else {
+    stopStatusRotation();
     hideTypingIndicator();
+    statusText.textContent = text;
+  }
+}
+
+// Rotate status messages for better context
+function startStatusRotation() {
+  if (statusRotationInterval) return;
+  
+  currentStatusIndex = 0;
+  updateStatusMessage();
+  
+  statusRotationInterval = setInterval(() => {
+    currentStatusIndex = (currentStatusIndex + 1) % statusMessages.length;
+    updateStatusMessage();
+  }, 3000); // Change every 3 seconds
+}
+
+function stopStatusRotation() {
+  if (statusRotationInterval) {
+    clearInterval(statusRotationInterval);
+    statusRotationInterval = null;
+  }
+}
+
+function updateStatusMessage() {
+  const message = statusMessages[currentStatusIndex];
+  statusText.textContent = message.text;
+  
+  // Also update typing indicator
+  const typingLabel = document.querySelector('.typing-indicator-label');
+  if (typingLabel) {
+    typingLabel.innerHTML = `${message.icon} ${message.text}`;
   }
 }
 
@@ -334,16 +412,24 @@ function executeCommand(command) {
   const activeTerminal = getActiveTerminal();
   if (!activeTerminal) return;
   
-  // Clear input
+  // Clear input and reset height
   commandInput.value = '';
+  commandInput.style.height = 'auto';
   
   // Update status
   updateStatus('processing', 'Processing...');
   activeTerminal.state.isProcessing = true;
   updateSendButton(true);
   
-  // Write command to terminal with nice formatting
-  activeTerminal.terminal.writeln(`\r\n\x1b[1;36mYou: \x1b[0m${command}`);
+  // Write command to terminal with enhanced formatting
+  const termWidth = activeTerminal.terminal.cols;
+  activeTerminal.terminal.writeln('');
+  activeTerminal.terminal.writeln('\x1b[2m' + '─'.repeat(termWidth) + '\x1b[0m');
+  activeTerminal.terminal.writeln('');
+  activeTerminal.terminal.write('  \x1b[1;38;5;147m$\x1b[0m \x1b[1;38;5;153m');
+  activeTerminal.terminal.write(command);
+  activeTerminal.terminal.writeln('\x1b[0m');
+  activeTerminal.terminal.writeln('');
   activeTerminal.terminal.scrollToBottom();
   
   // Add to history
@@ -372,6 +458,20 @@ function typewriterEffectForTab(tabId) {
   if (state.outputQueue.length === 0) {
     state.isTyping = false;
     state.typingTimer = null;
+    
+    // Flush any remaining buffer with formatting
+    if (state.outputBuffer && state.outputBuffer.trim()) {
+      const formatted = terminalFormatter.formatMarkdown(state.outputBuffer);
+      terminal.write(formatted);
+      state.outputBuffer = '';
+    }
+    
+    // Add Flux response footer if we had a header
+    if (state.hasFluxHeader) {
+      const footer = '\r\n\x1b[38;5;110m╰────────────────────────────────────────────────────╯\x1b[0m\r\n';
+      terminal.write(footer);
+      state.hasFluxHeader = false;
+    }
     
     // Only update UI if this is the active tab
     if (tabId === tabManager.activeTabId) {
@@ -450,6 +550,58 @@ function stopInactivityCheck() {
   lastOutputTime = null;
 }
 
+// Word wrapping helper function
+function wrapText(text, maxWidth) {
+  // Don't wrap if text contains ANSI codes (formatting)
+  if (text.includes('\x1b[')) {
+    return text;
+  }
+  
+  const lines = [];
+  const paragraphs = text.split('\n');
+  
+  for (const paragraph of paragraphs) {
+    if (paragraph.length <= maxWidth) {
+      lines.push(paragraph);
+      continue;
+    }
+    
+    let currentLine = '';
+    const words = paragraph.split(' ');
+    
+    for (const word of words) {
+      // If word itself is longer than maxWidth, just add it
+      if (word.length > maxWidth) {
+        if (currentLine) {
+          lines.push(currentLine);
+          currentLine = '';
+        }
+        lines.push(word);
+        continue;
+      }
+      
+      // Check if adding this word would exceed the width
+      const testLine = currentLine ? currentLine + ' ' + word : word;
+      if (testLine.length <= maxWidth) {
+        currentLine = testLine;
+      } else {
+        // Push current line and start new one with this word
+        if (currentLine) {
+          lines.push(currentLine);
+        }
+        currentLine = word;
+      }
+    }
+    
+    // Push remaining line
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+  }
+  
+  return lines.join('\r\n');
+}
+
 // Handle flux output with typewriter effect - now with tabId
 window.flux.onOutput((tabId, data) => {
   console.log(`Received flux output for tab ${tabId}:`, data.length, 'chars');
@@ -461,9 +613,39 @@ window.flux.onOutput((tabId, data) => {
     return;
   }
   
-  // Add characters to this tab's queue
-  for (let i = 0; i < data.length; i++) {
-    terminalData.state.outputQueue.push(data[i]);
+  // Add Flux response header if this is the start of output
+  if (!terminalData.state.hasFluxHeader) {
+    const header = '\x1b[38;5;110m╭─ \x1b[1;38;5;153m⚡ Flux\x1b[0m\x1b[38;5;110m ───────────────────────────────────────────────\x1b[0m\r\n';
+    terminalData.state.outputQueue.push(...header.split(''));
+    terminalData.state.hasFluxHeader = true;
+  }
+  
+  // Add to buffer for formatting
+  terminalData.state.outputBuffer += data;
+  terminalData.state.lastOutputTime = Date.now();
+  
+  // Check if we should format the buffer
+  // Format when we detect complete code blocks or after a pause
+  const shouldFormat = terminalFormatter.hasCodeBlock(terminalData.state.outputBuffer);
+  
+  if (shouldFormat) {
+    // Format the buffer
+    const formatted = terminalFormatter.formatOutput(terminalData.state.outputBuffer);
+    
+    // Clear buffer and add formatted output to queue
+    terminalData.state.outputBuffer = '';
+    for (let i = 0; i < formatted.length; i++) {
+      terminalData.state.outputQueue.push(formatted[i]);
+    }
+  } else {
+    // Wrap the data to prevent word splitting
+    const termWidth = terminalData.terminal.cols - 2; // Leave margin
+    const wrappedData = wrapText(data, termWidth);
+    
+    // Add wrapped data to queue
+    for (let i = 0; i < wrappedData.length; i++) {
+      terminalData.state.outputQueue.push(wrappedData[i]);
+    }
   }
   
   // Update last output time if this is the active tab
@@ -502,18 +684,15 @@ window.flux.onCancelled((tabId) => {
   // This is for backend confirmation if needed
 });
 
-// Auto-grow textarea
-commandInput.addEventListener('input', () => {
-  commandInput.style.height = 'auto';
-  commandInput.style.height = commandInput.scrollHeight + 'px';
-});
-
 // Input event handlers
 commandInput.addEventListener('keydown', (e) => {
   // Send on Enter (without Shift)
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendCommand();
+  } else if (e.key === 'Enter' && e.shiftKey) {
+    // Allow Shift+Enter for new line, then auto-expand
+    setTimeout(autoExpandTextarea, 0);
   }
   
   // Skip animation on Ctrl+C or Escape
