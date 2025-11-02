@@ -60,6 +60,18 @@ def main():
         help="Action to perform (default: check)"
     )
     
+    # Graph command
+    graph_parser = subparsers.add_parser(
+        "graph",
+        help="Export codebase graph data"
+    )
+    graph_parser.add_argument(
+        "--format",
+        choices=["json"],
+        default="json",
+        help="Output format (default: json)"
+    )
+    
     # Query command (default)
     parser.add_argument(
         "query",
@@ -92,6 +104,54 @@ def main():
             print_config_info(config)
         except Exception as e:
             print(f"\n❌ Configuration Error: {e}\n", file=sys.stderr)
+            sys.exit(1)
+        return
+    
+    # Handle graph export command
+    if args.command == "graph":
+        try:
+            import json
+            from flux.core.codebase_intelligence import CodebaseGraph
+            
+            cwd = Path.cwd()
+            graph = CodebaseGraph(cwd)
+            graph.build_graph(use_cache=True)
+            
+            # Export graph data
+            export_data = {
+                "stats": {
+                    "totalFiles": len(graph.files),
+                    "totalEntities": len(graph.entities),
+                    "contextTokens": len(graph.files) * 500  # Rough estimate
+                },
+                "files": {},
+                "entities": {}
+            }
+            
+            # Export files (limited to prevent huge output)
+            for path, file_node in list(graph.files.items())[:100]:
+                export_data["files"][path] = {
+                    "language": file_node.language,
+                    "imports": file_node.imports[:10],  # Limit
+                    "exports": file_node.exports[:10],
+                    "dependencies": file_node.dependencies[:10],
+                    "dependents": file_node.dependents[:10]
+                }
+            
+            # Export entities (limited)
+            for name, entity in list(graph.entities.items())[:100]:
+                export_data["entities"][name] = {
+                    "name": entity.name,
+                    "type": entity.type,
+                    "file": entity.file_path,
+                    "line": entity.line_number
+                }
+            
+            # Print JSON to stdout
+            print(json.dumps(export_data, indent=2))
+            
+        except Exception as e:
+            print(f"\n❌ Graph Export Error: {e}\n", file=sys.stderr)
             sys.exit(1)
         return
     

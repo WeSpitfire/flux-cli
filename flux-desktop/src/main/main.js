@@ -357,34 +357,107 @@ ipcMain.handle('search-files', async (event, { directory, query, maxResults = 50
   return results;
 });
 
-// IPC handler to get codebase stats
-// TODO: Integrate with real Flux CLI graph data when available
+// IPC handler to get codebase stats from Flux CLI
 ipcMain.handle('get-codebase-stats', async () => {
-  // Return mock data for now
-  return {
-    stats: {
-      totalFiles: 247,
-      totalEntities: 1834,
-      contextTokens: 125000
-    },
-    hotFiles: [
-      { path: 'src/renderer/renderer.js', changes: 15, lastModified: '2 hours ago' },
-      { path: 'src/renderer/terminal-formatter.js', changes: 8, lastModified: '3 hours ago' },
-      { path: 'src/renderer/styles.css', changes: 12, lastModified: '1 hour ago' },
-      { path: 'src/main/main.js', changes: 5, lastModified: '4 hours ago' }
-    ],
-    dependencies: [
-      { name: 'electron', type: 'npm', usedBy: 12 },
-      { name: 'xterm', type: 'npm', usedBy: 8 },
-      { name: 'xterm-addon-fit', type: 'npm', usedBy: 3 }
-    ],
-    entities: [
-      { name: 'Terminal', type: 'class', file: 'src/renderer/renderer.js', line: 42 },
-      { name: 'TerminalFormatter', type: 'class', file: 'src/renderer/terminal-formatter.js', line: 6 },
-      { name: 'initializeApp', type: 'function', file: 'src/renderer/renderer.js', line: 21 },
-      { name: 'formatOutput', type: 'function', file: 'src/renderer/terminal-formatter.js', line: 52 }
-    ]
-  };
+  return new Promise((resolve, reject) => {
+    // Find flux command
+    const projectRoot = path.resolve(path.join(__dirname, '../../..'));
+    const venvFluxPath = path.resolve(path.join(projectRoot, 'venv', 'bin', 'flux'));
+    const fluxExists = fs.existsSync(venvFluxPath);
+    const fluxCommand = fluxExists ? venvFluxPath : 'flux';
+    
+    console.log('[Codebase Stats] Using flux command:', fluxCommand);
+    
+    const fluxProcess = spawn(fluxCommand, ['graph', '--format=json'], {
+      cwd: process.cwd(),
+      shell: false
+    });
+
+    let output = '';
+    let errorOutput = '';
+    
+    fluxProcess.stdout.on('data', (data) => {
+      output += data.toString();
+    });
+
+    fluxProcess.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+      console.error('[Codebase Stats] Flux stderr:', data.toString());
+    });
+
+    fluxProcess.on('close', (code) => {
+      if (code === 0) {
+        try {
+          const graphData = JSON.parse(output);
+          
+          // Transform to expected format
+          const result = {
+            stats: graphData.stats || {
+              totalFiles: 0,
+              totalEntities: 0,
+              contextTokens: 0
+            },
+            hotFiles: [],
+            dependencies: [],
+            entities: []
+          };
+          
+          // Convert files to hotFiles format (most recently modified)
+          if (graphData.files) {
+            const filesList = Object.entries(graphData.files).map(([path, data]) => ({
+              path,
+              changes: 0,  // We don't track changes yet
+              lastModified: 'Unknown'
+            }));
+            result.hotFiles = filesList.slice(0, 10);
+          }
+          
+          // Convert entities
+          if (graphData.entities) {
+            result.entities = Object.values(graphData.entities).slice(0, 20);
+          }
+          
+          resolve(result);
+        } catch (error) {
+          console.error('[Codebase Stats] Failed to parse JSON:', error);
+          console.error('[Codebase Stats] Output was:', output);
+          reject('Failed to parse graph data: ' + error.message);
+        }
+      } else {
+        console.error('[Codebase Stats] Flux exited with code:', code);
+        console.error('[Codebase Stats] Error output:', errorOutput);
+        
+        // Fallback to mock data on error
+        resolve({
+          stats: {
+            totalFiles: 0,
+            totalEntities: 0,
+            contextTokens: 0
+          },
+          hotFiles: [],
+          dependencies: [],
+          entities: [],
+          error: `Flux CLI error (code ${code}): ${errorOutput}`
+        });
+      }
+    });
+    
+    fluxProcess.on('error', (error) => {
+      console.error('[Codebase Stats] Failed to spawn flux:', error);
+      // Fallback to empty data
+      resolve({
+        stats: {
+          totalFiles: 0,
+          totalEntities: 0,
+          contextTokens: 0
+        },
+        hotFiles: [],
+        dependencies: [],
+        entities: [],
+        error: `Failed to run flux: ${error.message}`
+      });
+    });
+  });
 });
 
 // IPC handler to request graph data from a specific Flux process
