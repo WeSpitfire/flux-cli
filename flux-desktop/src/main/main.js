@@ -133,6 +133,86 @@ ipcMain.handle('select-directory', async () => {
   return null;
 });
 
+ipcMain.handle('search-files', async (event, { directory, query, maxResults = 50 }) => {
+  const results = [];
+  const ignoredDirs = new Set(['node_modules', '.git', 'dist', 'build', 'venv', '__pycache__', '.DS_Store']);
+  const ignoredFiles = new Set(['.gitignore', '.DS_Store']);
+  
+  async function searchDir(dir, depth = 0) {
+    if (depth > 10) return; // Limit depth to prevent infinite recursion
+    if (results.length >= maxResults) return; // Stop if we have enough results
+    
+    try {
+      const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      
+      for (const entry of entries) {
+        if (results.length >= maxResults) break;
+        
+        // Skip ignored files/dirs
+        if (ignoredDirs.has(entry.name) || ignoredFiles.has(entry.name)) continue;
+        if (entry.name.startsWith('.') && entry.name !== '.') continue; // Skip hidden files except .
+        
+        const fullPath = path.join(dir, entry.name);
+        const relativePath = path.relative(directory, fullPath);
+        
+        if (entry.isDirectory()) {
+          // Recursively search subdirectories
+          await searchDir(fullPath, depth + 1);
+        } else if (entry.isFile()) {
+          // Check if filename matches query
+          const lowerName = entry.name.toLowerCase();
+          const lowerQuery = query.toLowerCase();
+          
+          if (lowerName.includes(lowerQuery)) {
+            results.push({
+              name: entry.name,
+              path: relativePath,
+              fullPath: fullPath,
+              type: getFileType(entry.name)
+            });
+          }
+        }
+      }
+    } catch (err) {
+      // Silently skip directories we can't read
+      console.error('Error reading directory:', dir, err.message);
+    }
+  }
+  
+  function getFileType(filename) {
+    const ext = path.extname(filename).toLowerCase();
+    const typeMap = {
+      '.js': 'javascript',
+      '.jsx': 'javascript',
+      '.ts': 'typescript',
+      '.tsx': 'typescript',
+      '.py': 'python',
+      '.java': 'java',
+      '.c': 'c',
+      '.cpp': 'cpp',
+      '.h': 'header',
+      '.css': 'stylesheet',
+      '.scss': 'stylesheet',
+      '.html': 'html',
+      '.json': 'json',
+      '.md': 'markdown',
+      '.txt': 'text',
+      '.yaml': 'config',
+      '.yml': 'config',
+      '.toml': 'config',
+      '.xml': 'xml',
+      '.svg': 'image',
+      '.png': 'image',
+      '.jpg': 'image',
+      '.gif': 'image'
+    };
+    return typeMap[ext] || 'file';
+  }
+  
+  await searchDir(directory);
+  return results;
+});
+
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {

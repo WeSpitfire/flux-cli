@@ -7,9 +7,18 @@ class CommandPalette {
     this.searchResults = [];
     this.selectedIndex = 0;
     this.searchQuery = '';
+    this.isLoading = false;
+    this.searchDebounceTimer = null;
     
     // Data sources
     this.commandHistory = [];
+    this.commandFrequency = this.loadFrequency();
+    this.workingDirectory = null;
+    this.fileCache = [];
+    this.fileCacheTime = 0;
+    
+    // Get working directory
+    this.initWorkingDirectory();
     this.fluxCommands = [
       { type: 'flux', name: '/commit', description: 'Smart commit with AI-generated message', icon: '🔧' },
       { type: 'flux', name: '/diff', description: 'Show git diff with explanation', icon: '📊' },
@@ -22,6 +31,14 @@ class CommandPalette {
     ];
     
     this.init();
+  }
+  
+  async initWorkingDirectory() {
+    try {
+      this.workingDirectory = await window.fileSystem.getCwd();
+    } catch (e) {
+      console.error('Failed to get working directory:', e);
+    }
   }
   
   init() {
@@ -84,9 +101,17 @@ class CommandPalette {
       }
     });
     
-    // Search input events
+    // Search input events with debouncing
     this.searchInput.addEventListener('input', () => {
-      this.handleSearch();
+      // Clear existing timer
+      if (this.searchDebounceTimer) {
+        clearTimeout(this.searchDebounceTimer);
+      }
+      
+      // Debounce search by 150ms
+      this.searchDebounceTimer = setTimeout(() => {
+        this.handleSearch();
+      }, 150);
     });
     
     this.searchInput.addEventListener('keydown', (e) => {
@@ -144,20 +169,36 @@ class CommandPalette {
   showDefaultResults() {
     // Get recent commands from state
     const state = window.fluxState || { commandHistory: [] };
-    const recentCommands = state.commandHistory.slice(0, 5).map((item, i) => ({
-      type: 'history',
-      name: item.command,
-      description: `Recent command (${item.timestamp})`,
-      icon: '📝',
-      index: i
-    }));
+    
+    // Get top 10 most frequent commands, but prioritize recent ones
+    const commandsWithFreq = state.commandHistory.map((item, i) => {
+      const frequency = this.commandFrequency[item.command] || 1;
+      const recencyScore = Math.max(10 - i, 1); // Recent = higher score
+      const totalScore = frequency * 2 + recencyScore; // Frequency weighted more
+      
+      return {
+        type: 'history',
+        name: item.command,
+        description: this.formatHistoryDescription(item, frequency),
+        icon: this.getFrequencyIcon(frequency),
+        index: i,
+        frequency,
+        recencyScore,
+        totalScore
+      };
+    });
+    
+    // Sort by total score (frequency + recency) and take top 8
+    const topCommands = commandsWithFreq
+      .sort((a, b) => b.totalScore - a.totalScore)
+      .slice(0, 8);
     
     // Combine with Flux commands
-    this.searchResults = [...recentCommands, ...this.fluxCommands];
+    this.searchResults = [...topCommands, ...this.fluxCommands];
     this.renderResults();
   }
   
-  handleSearch() {
+  async handleSearch() {
     this.searchQuery = this.searchInput.value.trim().toLowerCase();
     this.selectedIndex = 0;
     
@@ -166,12 +207,23 @@ class CommandPalette {
       return;
     }
     
-    // Fuzzy search across all sources
-    this.searchResults = this.fuzzySearch(this.searchQuery);
-    this.renderResults();
+    // Show loading state
+    this.isLoading = true;
+    this.renderLoading();
+    
+    try {
+      // Fuzzy search across all sources (now async)
+      this.searchResults = await this.fuzzySearch(this.searchQuery);
+      this.isLoading = false;
+      this.renderResults();
+    } catch (e) {
+      console.error('Search error:', e);
+      this.isLoading = false;
+      this.renderResults();
+    }
   }
   
-  fuzzySearch(query) {
+  async fuzzySearch(query) {
     const results = [];
     
     // Search Flux commands
@@ -187,18 +239,26 @@ class CommandPalette {
     state.commandHistory.forEach((item, i) => {
       const score = this.calculateFuzzyScore(query, item.command);
       if (score > 0) {
+        const frequency = this.commandFrequency[item.command] || 1;
+        const boostedScore = score + (frequency * 2); // Boost by frequency
+        
         results.push({
           type: 'history',
           name: item.command,
-          description: `Recent command (${item.timestamp})`,
-          icon: '📝',
+          description: this.formatHistoryDescription(item, frequency),
+          icon: this.getFrequencyIcon(frequency),
           index: i,
-          score
+          frequency,
+          score: boostedScore
         });
       }
     });
     
-    // TODO: Search files (will implement in Day 4)
+    // Search files
+    if (this.workingDirectory && query.length >= 2) {
+      const fileResults = await this.searchFiles(query);
+      results.push(...fileResults);
+    }
     
     // Sort by score
     results.sort((a, b) => b.score - a.score);
@@ -236,7 +296,18 @@ class CommandPalette {
     return 0;
   }
   
+  renderLoading() {
+    this.resultsContainer.innerHTML = `
+      <div class="command-palette-loading">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Searching...</div>
+      </div>
+    `;
+  }
+  
   renderResults() {
+    if (this.isLoading) return; // Don't render if still loading
+    
     if (this.searchResults.length === 0) {
       this.resultsContainer.innerHTML = `
         <div class="command-palette-empty">
@@ -250,6 +321,7 @@ class CommandPalette {
     
     this.resultsContainer.innerHTML = this.searchResults.map((result, index) => {
       const isSelected = index === this.selectedIndex;
+      const typeLabel = result.subtype ? this.getTypeLabel(result.subtype) : this.getTypeLabel(result.type);
       return `
         <div class="command-palette-item ${isSelected ? 'selected' : ''}" data-index="${index}">
           <div class="item-icon">${result.icon}</div>
@@ -257,7 +329,7 @@ class CommandPalette {
             <div class="item-name">${this.highlightMatch(result.name, this.searchQuery)}</div>
             <div class="item-description">${result.description}</div>
           </div>
-          <div class="item-type">${this.getTypeLabel(result.type)}</div>
+          <div class="item-type">${typeLabel}</div>
         </div>
       `;
     }).join('');
@@ -288,9 +360,17 @@ class CommandPalette {
     const labels = {
       'flux': 'Command',
       'history': 'History',
-      'file': 'File'
+      'file': 'File',
+      'javascript': 'JS',
+      'typescript': 'TS',
+      'python': 'PY',
+      'stylesheet': 'CSS',
+      'markdown': 'MD',
+      'json': 'JSON',
+      'html': 'HTML',
+      'config': 'CFG'
     };
-    return labels[type] || type;
+    return labels[type] || type.toUpperCase();
   }
   
   selectNext() {
@@ -336,6 +416,9 @@ class CommandPalette {
         commandInput.dispatchEvent(new Event('input'));
       }
     } else if (selected.type === 'history') {
+      // Track frequency
+      this.incrementFrequency(selected.name);
+      
       // Insert historical command into input
       const commandInput = document.getElementById('command-input');
       if (commandInput) {
@@ -344,14 +427,144 @@ class CommandPalette {
         commandInput.dispatchEvent(new Event('input'));
       }
     } else if (selected.type === 'file') {
-      // TODO: Open file (Day 4)
-      console.log('Open file:', selected.name);
+      // Insert command to open file
+      const commandInput = document.getElementById('command-input');
+      if (commandInput) {
+        commandInput.value = `Open ${selected.path}`;
+        commandInput.focus();
+        commandInput.dispatchEvent(new Event('input'));
+      }
     }
   }
   
   // Update command history (called from main app)
   updateHistory(history) {
     this.commandHistory = history;
+  }
+  
+  // Frequency tracking helpers
+  loadFrequency() {
+    try {
+      const stored = localStorage.getItem('flux-command-frequency');
+      return stored ? JSON.parse(stored) : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  
+  saveFrequency() {
+    try {
+      localStorage.setItem('flux-command-frequency', JSON.stringify(this.commandFrequency));
+    } catch (e) {
+      console.error('Failed to save frequency data:', e);
+    }
+  }
+  
+  incrementFrequency(command) {
+    this.commandFrequency[command] = (this.commandFrequency[command] || 0) + 1;
+    this.saveFrequency();
+  }
+  
+  getFrequencyIcon(frequency) {
+    if (frequency >= 10) return '⭐'; // Very frequent
+    if (frequency >= 5) return '🔥'; // Frequent
+    if (frequency >= 3) return '📌'; // Somewhat frequent
+    return '📝'; // Normal
+  }
+  
+  formatHistoryDescription(item, frequency) {
+    const timeAgo = this.getRelativeTime(item.timestamp);
+    const freqText = frequency > 1 ? ` • Used ${frequency}x` : '';
+    return `${timeAgo}${freqText}`;
+  }
+  
+  getRelativeTime(timestamp) {
+    // If timestamp is already a date string like "3:45 PM", parse it
+    // Otherwise assume it's a Date object or string
+    const now = new Date();
+    let date;
+    
+    try {
+      // Try to parse as time string (e.g., "3:45 PM")
+      const timeMatch = timestamp.match(/(\d+):(\d+)\s*(AM|PM)/i);
+      if (timeMatch) {
+        date = new Date();
+        let hours = parseInt(timeMatch[1]);
+        const minutes = parseInt(timeMatch[2]);
+        const meridiem = timeMatch[3].toUpperCase();
+        
+        if (meridiem === 'PM' && hours !== 12) hours += 12;
+        if (meridiem === 'AM' && hours === 12) hours = 0;
+        
+        date.setHours(hours, minutes, 0, 0);
+        
+        // If time is in the future, assume it was yesterday
+        if (date > now) {
+          date.setDate(date.getDate() - 1);
+        }
+      } else {
+        date = new Date(timestamp);
+      }
+    } catch (e) {
+      return timestamp; // Fallback to original
+    }
+    
+    const seconds = Math.floor((now - date) / 1000);
+    
+    if (seconds < 60) return 'Just now';
+    if (seconds < 120) return '1 min ago';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+    if (seconds < 7200) return '1 hour ago';
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
+    if (seconds < 172800) return 'Yesterday';
+    if (seconds < 604800) return `${Math.floor(seconds / 86400)} days ago`;
+    
+    return date.toLocaleDateString();
+  }
+  
+  async searchFiles(query) {
+    if (!this.workingDirectory) return [];
+    
+    try {
+      const files = await window.fileSystem.searchFiles(this.workingDirectory, query, 20);
+      
+      return files.map(file => {
+        const score = this.calculateFuzzyScore(query, file.name);
+        return {
+          type: 'file',
+          subtype: file.type,
+          name: file.name,
+          path: file.path,
+          fullPath: file.fullPath,
+          description: file.path,
+          icon: this.getFileIcon(file.type),
+          score: score * 0.8 // Slightly lower priority than commands
+        };
+      });
+    } catch (e) {
+      console.error('File search error:', e);
+      return [];
+    }
+  }
+  
+  getFileIcon(fileType) {
+    const icons = {
+      'javascript': '🟡',
+      'typescript': '🔵',
+      'python': '🐍',
+      'java': '☕',
+      'c': '🆒',
+      'cpp': '🆒',
+      'stylesheet': '🎨',
+      'html': '🌐',
+      'json': '📊',
+      'markdown': '📖',
+      'text': '📄',
+      'config': '⚙️',
+      'image': '🖼️',
+      'file': '📄'
+    };
+    return icons[fileType] || '📄';
   }
 }
 

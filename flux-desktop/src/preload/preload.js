@@ -35,5 +35,6 @@ window.fileSystem = {
   isDirectory: (filePath) => ipcRenderer.invoke('is-directory', filePath),
   joinPath: (...paths) => ipcRenderer.invoke('join-path', ...paths),
   getCwd: () => ipcRenderer.invoke('get-cwd'),
-  selectDirectory: () => ipcRenderer.invoke('select-directory')
+  selectDirectory: () => ipcRenderer.invoke('select-directory'),
+  searchFiles: (directory, query, maxResults) => ipcRenderer.invoke('search-files', { directory, query, maxResults })
 };
