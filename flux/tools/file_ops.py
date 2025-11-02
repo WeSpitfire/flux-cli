@@ -1,13 +1,69 @@
 """File operation tools."""
 
 import json
+import re
 from pathlib import Path
-from typing import List, Any, Dict, Optional
+from typing import List, Any, Dict, Optional, Tuple
 from flux.tools.base import Tool, ToolParameter
 from flux.core.diff import DiffPreview
 from flux.core.syntax_checker import SyntaxChecker
 from flux.core.errors import file_not_found_error, search_not_found_error, syntax_error_response
 from rich.console import Console
+
+
+def validate_file_path(path_str: str, cwd: Path, operation: str = "access") -> Tuple[bool, Optional[str]]:
+    """Validate a file path for safety.
+    
+    Args:
+        path_str: The path string to validate
+        cwd: Current working directory
+        operation: Type of operation (read, write, delete)
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    try:
+        path = Path(path_str)
+        
+        # Resolve to absolute path
+        if not path.is_absolute():
+            path = cwd / path
+        path = path.resolve()
+        
+        # Check for path traversal attempts that escape project
+        # Allow going outside cwd but flag suspicious patterns
+        path_str_lower = str(path).lower()
+        
+        # Block access to sensitive system directories
+        dangerous_paths = [
+            '/etc/passwd', '/etc/shadow', '/etc/sudoers',
+            '/boot', '/sys', '/proc',
+            'c:\\windows\\system32', 'c:\\windows\\syswow64',
+        ]
+        
+        for dangerous in dangerous_paths:
+            if dangerous.lower() in path_str_lower:
+                return False, f"Access to system path '{dangerous}' is not allowed for security reasons."
+        
+        # Check for null bytes (path injection)
+        if '\x00' in path_str:
+            return False, "Path contains null byte - potential path injection attack."
+        
+        # Warn about paths with unusual characters
+        if re.search(r'[<>:"|?*]', path_str) and operation == "write":
+            return False, f"Path contains invalid characters for {operation} operation."
+        
+        # For delete operations, be extra careful
+        if operation == "delete":
+            # Don't allow deleting root or critical directories
+            critical_dirs = ['/', '/home', '/usr', '/var', str(Path.home())]
+            if str(path) in critical_dirs:
+                return False, f"Cannot delete critical directory: {path}"
+        
+        return True, None
+        
+    except Exception as e:
+        return False, f"Invalid path: {str(e)}"
 
 
 class ReadFilesTool(Tool):
@@ -49,6 +105,18 @@ ON ERROR: Use list_files or find_files to discover correct paths."""
         results = {}
         
         for path_str in paths:
+            # Validate path first
+            is_valid, error_msg = validate_file_path(path_str, self.cwd, "read")
+            if not is_valid:
+                results[path_str] = {
+                    "error": {
+                        "code": "INVALID_PATH",
+                        "message": error_msg,
+                        "path": path_str
+                    }
+                }
+                continue
+            
             try:
                 path = Path(path_str)
                 if not path.is_absolute():
@@ -159,6 +227,18 @@ ON ERROR: Check file permissions and path validity."""
     
     async def execute(self, path: str, content: str, target_dir: str = None) -> Dict[str, Any]:
         """Write content to file."""
+        # Validate path first
+        is_valid, error_msg = validate_file_path(path, self.cwd, "write")
+        if not is_valid:
+            return {
+                "error": {
+                    "code": "INVALID_PATH",
+                    "message": error_msg,
+                    "path": path,
+                    "suggestion": "Check the file path for invalid characters or access to restricted directories."
+                }
+            }
+        
         try:
             file_path = Path(path)
             
@@ -312,6 +392,37 @@ ON ERROR: Re-read file, copy exact text including all spaces/tabs. Check indenta
     
     async def execute(self, path: str, search: str, replace: str) -> Dict[str, Any]:
         """Edit file by replacing search with replace."""
+        # Validate path first
+        is_valid, error_msg = validate_file_path(path, self.cwd, "write")
+        if not is_valid:
+            return {
+                "error": {
+                    "code": "INVALID_PATH",
+                    "message": error_msg,
+                    "path": path,
+                    "suggestion": "Check the file path for invalid characters or access to restricted directories."
+                }
+            }
+        
+        # Validate search and replace strings
+        if not search:
+            return {
+                "error": {
+                    "code": "INVALID_INPUT",
+                    "message": "Search string cannot be empty.",
+                    "suggestion": "Provide the exact text you want to replace."
+                }
+            }
+        
+        if len(search) < 3:
+            return {
+                "error": {
+                    "code": "INVALID_INPUT",
+                    "message": "Search string is too short (minimum 3 characters).",
+                    "suggestion": "Use a longer search string to avoid unintended replacements."
+                }
+            }
+        
         try:
             file_path = Path(path)
             if not file_path.is_absolute():

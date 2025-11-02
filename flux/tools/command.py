@@ -2,9 +2,41 @@
 
 import asyncio
 import subprocess
+import re
 from pathlib import Path
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Tuple
 from flux.tools.base import Tool, ToolParameter
+
+
+def validate_command_string(command: str) -> Tuple[bool, str]:
+    """Validate a command string for safety and correctness.
+    
+    Args:
+        command: The shell command to validate
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    # Check for shell metacharacters that could enable command injection
+    unsafe_chars = [';', '&&', '||', '|', '`', '$(']
+    for char in unsafe_chars:
+        if char in command:
+            return False, f"Command contains unsafe sequence '{char}' which could enable command injection."
+    
+    # Check for dangerous operations
+    dangerous_patterns = [
+        (r'rm\s+-rf\s+/', "Command contains 'rm -rf /' which could delete system files."),
+        (r'rm\s+-rf\s+\*', "Command contains 'rm -rf *' which could delete all files."),
+        (r':\(\)\{', "Command contains fork bomb pattern."),
+        (r'>/dev/sd', "Command attempts to write directly to disk device."),
+        (r'dd\s+if=.*of=/dev', "Command uses dd to write to device - potentially dangerous."),
+    ]
+    
+    for pattern, message in dangerous_patterns:
+        if re.search(pattern, command):
+            return False, message
+    
+    return True, "Command is safe."
 
 
 class RunCommandTool(Tool):
@@ -44,6 +76,14 @@ The command runs in the current working directory."""
     async def execute(self, command: str, timeout: float = 30.0) -> Dict[str, Any]:
         """Execute command and return result."""
         try:
+            # Validate command
+            is_valid, validation_message = validate_command_string(command)
+            if not is_valid:
+                return {
+                    "error": validation_message,
+                    "command": command
+                }
+
             # Run command
             process = await asyncio.create_subprocess_shell(
                 command,

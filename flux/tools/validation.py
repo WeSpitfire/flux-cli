@@ -2,9 +2,11 @@
 
 import re
 from pathlib import Path
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Tuple
 from flux.tools.base import Tool, ToolParameter
 
+
+__all__ = ['ValidationTool']
 
 class ValidationTool(Tool):
     """Tool for validating generated code for common issues."""
@@ -220,3 +222,4 @@ class ValidationTool(Tool):
         # Check for common typos or undefined references
         
         return issues, suggestions
+
