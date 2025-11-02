@@ -757,18 +757,18 @@ class CLI:
             if self.project_info.frameworks:
                 prompt += f" | {', '.join(self.project_info.frameworks[:2])}"
         
-        # Add README only on first query, keep it brief
+        # Add README only on first query, keep it very brief
         if self._project_readme and query and len(self.llm.conversation_history) < 2:
-            # Limit to 1000 chars to save tokens
-            readme_snippet = self._project_readme[:1000]
+            # Limit to 500 chars to save tokens (reduced from 1000)
+            readme_snippet = self._project_readme[:500]
             prompt += f"\n\nREADME: {readme_snippet}"
         
         # Minimal codebase intelligence - only when relevant
         if self.codebase_graph and query:
-            # Only add file suggestions if they exist
+            # Only add file suggestions if they exist (limit to 2)
             suggested_files = self.get_intelligent_context(query)
             if suggested_files:
-                prompt += f"\n\nRelevant files: {', '.join(suggested_files)}"
+                prompt += f"\n\nRelevant: {', '.join(suggested_files[:2])}"
         
         # Only add memory context if there's an active task
         if self.memory.state.current_task:

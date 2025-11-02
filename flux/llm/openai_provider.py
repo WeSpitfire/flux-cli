@@ -33,7 +33,9 @@ class OpenAIProvider(BaseLLMProvider):
         # OpenAI uses different conversation format
         self.messages: List[Dict[str, Any]] = []
         # Context manager for pruning history (configurable via --max-history)
-        max_history = getattr(config, 'max_history', 8000)
+        # Default to 4000 for GPT-4o to stay well under 30K token/min limit
+        # (leaves ~26K for system prompt, tools, and response)
+        max_history = getattr(config, 'max_history', 4000)
         self.context_manager = ContextManager(max_context_tokens=max_history)
     
     async def send_message(
@@ -58,6 +60,11 @@ class OpenAIProvider(BaseLLMProvider):
         
         # Prune conversation history to stay within token limits
         pruned_messages = self.context_manager.prune_history(self.messages)
+        
+        # Log pruning stats for debugging
+        if len(self.messages) != len(pruned_messages):
+            stats = self.context_manager.get_pruning_stats(self.messages, pruned_messages)
+            print(f"   ✂️  Pruned history: {stats['messages_removed']} messages removed, saved ~{stats['tokens_saved']} tokens")
         
         # IMPORTANT: Update self.messages with pruned version to prevent unbounded growth
         self.messages = pruned_messages.copy()

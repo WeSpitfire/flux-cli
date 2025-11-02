@@ -28,7 +28,8 @@ class ContextManager:
                                (leaves room for system prompt + response)
         """
         self.max_context_tokens = max_context_tokens
-        self.token_estimate_ratio = 4  # ~4 chars per token
+        # More aggressive ratio for safety (3 chars per token)
+        self.token_estimate_ratio = 3
     
     def prune_history(
         self,
