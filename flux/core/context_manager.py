@@ -101,6 +101,10 @@ class ContextManager:
         original_indices = {id(msg): i for i, msg in enumerate(history)}
         pruned.sort(key=lambda m: original_indices.get(id(m), len(history)))
         
+        # IMPORTANT: For OpenAI, ensure tool_calls and tool results stay paired
+        # If we have a 'tool' message, make sure its preceding assistant message with tool_calls is kept
+        pruned = self._ensure_tool_pairs(pruned, history)
+        
         return pruned
     
     def _score_message_importance(
@@ -184,6 +188,68 @@ class ContextManager:
             reason="Unknown message type",
             keep_priority=7
         )
+    
+    def _ensure_tool_pairs(self, pruned: List[Dict[str, Any]], original: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Ensure tool_calls and tool results stay paired for OpenAI.
+        
+        OpenAI requires that:
+        - A message with 'tool_calls' must be followed by 'tool' role messages
+        - 'tool' role messages must follow a message with 'tool_calls'
+        
+        Args:
+            pruned: Pruned message list
+            original: Original message list
+            
+        Returns:
+            Fixed pruned list with valid tool pairs
+        """
+        if not pruned:
+            return pruned
+        
+        fixed = []
+        original_indices = {id(msg): i for i, msg in enumerate(original)}
+        
+        for msg in pruned:
+            # If this is a 'tool' message, ensure its assistant message with tool_calls is included
+            if msg.get('role') == 'tool':
+                # Find the preceding assistant message with tool_calls in original history
+                msg_idx = original_indices.get(id(msg))
+                if msg_idx is not None:
+                    # Look backward for assistant message with tool_calls
+                    for i in range(msg_idx - 1, -1, -1):
+                        prev_msg = original[i]
+                        if prev_msg.get('role') == 'assistant' and prev_msg.get('tool_calls'):
+                            # Add it if not already in fixed list
+                            if prev_msg not in fixed:
+                                fixed.append(prev_msg)
+                            break
+            
+            fixed.append(msg)
+        
+        # Remove orphaned tool messages (those without their assistant message)
+        final = []
+        i = 0
+        while i < len(fixed):
+            msg = fixed[i]
+            
+            if msg.get('role') == 'tool':
+                # Check if there's a preceding assistant with tool_calls
+                has_preceding_assistant = False
+                for j in range(i - 1, -1, -1):
+                    if fixed[j].get('role') == 'assistant':
+                        if fixed[j].get('tool_calls'):
+                            has_preceding_assistant = True
+                        break
+                
+                if has_preceding_assistant:
+                    final.append(msg)
+                # Otherwise skip this orphaned tool message
+            else:
+                final.append(msg)
+            
+            i += 1
+        
+        return final
     
     def _estimate_tokens(self, messages: List[Dict[str, Any]]) -> int:
         """Estimate token count for messages."""
