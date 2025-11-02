@@ -18,6 +18,9 @@ const state = {
   isProcessing: false
 };
 
+// Expose state globally for command palette
+window.fluxState = state;
+
 // Initialize terminal
 const terminal = new Terminal({
   theme: {
@@ -348,12 +351,6 @@ commandInput.addEventListener('keydown', (e) => {
       e.preventDefault();
       skipAnimation = true;
     }
-  }
-  
-  // Clear on Ctrl+K
-  if (e.key === 'k' && (e.ctrlKey || e.metaKey)) {
-    e.preventDefault();
-    terminal.clear();
   }
   
   // History navigation with Up/Down arrows

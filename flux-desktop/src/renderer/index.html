@@ -7,6 +7,7 @@
     <title>Flux - AI Coding Assistant</title>
     <link rel="stylesheet" href="xterm.css">
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="command-palette.css">
   </head>
   <body>
     <div class="app-container">
@@ -123,13 +124,14 @@
               </button>
             </div>
             <div class="input-hint">
-              <kbd>Enter</kbd> send • <kbd>Ctrl+C</kbd> / <kbd>Esc</kbd> skip animation • <kbd>Ctrl+K</kbd> clear • <kbd>↑/↓</kbd> history
+              <kbd>Enter</kbd> send • <kbd>Cmd+K</kbd> command palette • <kbd>Ctrl+C</kbd> / <kbd>Esc</kbd> skip • <kbd>↑/↓</kbd> history
             </div>
           </div>
         </div>
       </main>
     </div>
 
+    <script src="command-palette.js"></script>
     <script src="renderer.js"></script>
     <script src="file-explorer.js"></script>
   </body>
