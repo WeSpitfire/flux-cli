@@ -1,7 +1,8 @@
-// Import xterm modules
-const { Terminal } = require('xterm');
-const { FitAddon } = require('xterm-addon-fit');
-const { WebLinksAddon } = require('xterm-addon-web-links');
+// xterm modules are loaded via script tags in index.html
+// Access them from global scope
+const Terminal = window.Terminal;
+const FitAddon = window.FitAddon.FitAddon;
+const WebLinksAddon = window.WebLinksAddon.WebLinksAddon;
 
 // Global state for tab management
 const terminals = new Map(); // tabId -> terminal instance

@@ -123,7 +123,11 @@ function createWindow () {
 
     fluxProcess.stdout.on('data', (data) => {
       const output = data.toString();
-      console.log(`[Flux ${tabId} stdout]:`, output);
+      try {
+        console.log(`[Flux ${tabId} stdout]:`, output);
+      } catch (err) {
+        // Ignore EPIPE errors from logging
+      }
       if (!win.isDestroyed()) {
         win.webContents.send('flux-output', { tabId, data: output });
       }
@@ -131,7 +135,11 @@ function createWindow () {
 
     fluxProcess.stderr.on('data', (data) => {
       const error = data.toString();
-      console.error(`[Flux ${tabId} stderr]:`, error);
+      try {
+        console.error(`[Flux ${tabId} stderr]:`, error);
+      } catch (err) {
+        // Ignore EPIPE errors from logging
+      }
       if (!win.isDestroyed()) {
         win.webContents.send('flux-error', { tabId, data: error });
       }
