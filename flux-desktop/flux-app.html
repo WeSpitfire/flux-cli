@@ -395,6 +395,59 @@
       font-family: monospace;
     }
     
+    /* Smooth Transitions */
+    * {
+      transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    }
+    
+    button {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    button:active {
+      transform: scale(0.95);
+    }
+    
+    /* Loading State */
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    
+    .loading {
+      animation: spin 1s linear infinite;
+    }
+    
+    /* Fade In Animation */
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    .flux-feature-card {
+      animation: fadeInUp 0.3s ease forwards;
+    }
+    
+    .flux-feature-card:nth-child(1) { animation-delay: 0.1s; opacity: 0; }
+    .flux-feature-card:nth-child(2) { animation-delay: 0.2s; opacity: 0; }
+    .flux-feature-card:nth-child(3) { animation-delay: 0.3s; opacity: 0; }
+    
+    /* Success Animation */
+    @keyframes successPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+    
+    .success-animation {
+      animation: successPulse 0.3s ease;
+    }
+    
     /* Scrollbar */
     .flux-terminal::-webkit-scrollbar,
     .flux-shortcuts-dialog::-webkit-scrollbar {
