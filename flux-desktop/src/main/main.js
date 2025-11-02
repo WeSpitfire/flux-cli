@@ -27,14 +27,23 @@ function createWindow () {
     const fluxExists = fs.existsSync(venvFluxPath);
     const fluxCommand = fluxExists ? venvFluxPath : 'flux';
     
+    // Expand tilde in cwd if present
+    let workingDir = cwd || projectRoot;
+    if (workingDir.startsWith('~')) {
+      const homeDir = require('os').homedir();
+      workingDir = workingDir.replace(/^~/, homeDir);
+    }
+    workingDir = path.resolve(workingDir);
+    
     console.log(`[Tab ${tabId}] Project root:`, projectRoot);
     console.log(`[Tab ${tabId}] Venv flux path:`, venvFluxPath);
     console.log(`[Tab ${tabId}] Flux exists:`, fluxExists);
     console.log(`[Tab ${tabId}] Using command:`, fluxCommand);
-    console.log(`[Tab ${tabId}] Working directory:`, cwd || projectRoot);
+    console.log(`[Tab ${tabId}] Working directory (original):`, cwd);
+    console.log(`[Tab ${tabId}] Working directory (expanded):`, workingDir);
     
     const fluxProcess = spawn(fluxCommand, [], {
-      cwd: cwd || projectRoot,
+      cwd: workingDir,
       env: { 
         ...process.env,
         PYTHONUNBUFFERED: '1',
