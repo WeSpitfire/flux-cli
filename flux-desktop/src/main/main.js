@@ -257,9 +257,15 @@ ipcMain.handle('search-files', async (event, { directory, query, maxResults = 50
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
-  if (fluxProcess && !fluxProcess.killed) {
-    fluxProcess.kill();
-  }
+  // Kill all flux processes
+  fluxProcesses.forEach((process, tabId) => {
+    if (process && !process.killed) {
+      console.log(`Cleaning up flux process for tab ${tabId}`);
+      process.kill();
+    }
+  });
+  fluxProcesses.clear();
+  
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -272,7 +278,12 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
-  if (fluxProcess && !fluxProcess.killed) {
-    fluxProcess.kill();
-  }
+  // Kill all flux processes
+  fluxProcesses.forEach((process, tabId) => {
+    if (process && !process.killed) {
+      console.log(`Cleaning up flux process for tab ${tabId}`);
+      process.kill();
+    }
+  });
+  fluxProcesses.clear();
 });
