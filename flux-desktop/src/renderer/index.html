@@ -61,6 +61,16 @@
               </svg>
               Files
             </button>
+            <button class="sidebar-tab" data-tab="codebase">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <circle cx="4" cy="4" r="2" stroke="currentColor" stroke-width="1.5"/>
+                <circle cx="12" cy="4" r="2" stroke="currentColor" stroke-width="1.5"/>
+                <circle cx="4" cy="12" r="2" stroke="currentColor" stroke-width="1.5"/>
+                <circle cx="12" cy="12" r="2" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M6 4h4M4 6v4M12 6v4M6 12h4" stroke="currentColor" stroke-width="1.5"/>
+              </svg>
+              Explorer
+            </button>
           </div>
 
           <!-- History Panel -->
@@ -96,12 +106,92 @@
               <!-- File tree will be populated here -->
             </div>
           </div>
+
+          <!-- Codebase Explorer Panel -->
+          <div class="sidebar-panel" id="codebase-panel">
+            <div class="sidebar-header">
+              <h3>Codebase Explorer</h3>
+              <button class="icon-btn" id="refresh-graph" title="Refresh Graph">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M14 2v4h-4M2 14v-4h4M2.5 7a6 6 0 0 1 11-3M13.5 9a6 6 0 0 1-11 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+            
+            <!-- Stats Summary -->
+            <div class="codebase-stats">
+              <div class="stat-card">
+                <div class="stat-value" id="total-files">-</div>
+                <div class="stat-label">Files</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="total-entities">-</div>
+                <div class="stat-label">Entities</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="context-tokens">-</div>
+                <div class="stat-label">Tokens</div>
+              </div>
+            </div>
+
+            <!-- Section: Hot Files -->
+            <div class="explorer-section">
+              <div class="section-header">🔥 Hot Files</div>
+              <div class="section-content" id="hot-files-list">
+                <div class="loading-text">Loading...</div>
+              </div>
+            </div>
+
+            <!-- Section: Dependencies -->
+            <div class="explorer-section">
+              <div class="section-header">📦 Dependencies</div>
+              <div class="section-content" id="dependencies-list">
+                <div class="loading-text">Loading...</div>
+              </div>
+            </div>
+
+            <!-- Section: Key Entities -->
+            <div class="explorer-section">
+              <div class="section-header">⚡ Key Entities</div>
+              <div class="section-content" id="entities-list">
+                <div class="loading-text">Loading...</div>
+              </div>
+            </div>
+          </div>
         </aside>
 
         <!-- Terminal and input area -->
         <div class="workspace">
+          <!-- Tab Bar -->
+          <div class="tab-bar" id="tab-bar">
+            <div class="tab-list" id="tab-list">
+              <!-- Tabs will be populated here -->
+            </div>
+            <button class="tab-new-btn" id="new-tab-btn" title="New Tab (Cmd+T)">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+          
           <div class="terminal-wrapper">
-            <div id="terminal"></div>
+            <div id="terminal-container">
+              <!-- Terminal instances will be created here -->
+            </div>
+            <!-- Typing Indicator -->
+            <div class="typing-indicator" id="typing-indicator" style="display: none;">
+              <div class="typing-indicator-content">
+                <span class="typing-indicator-avatar">🤖</span>
+                <div class="typing-indicator-text">
+                  <span class="typing-indicator-label">Flux is thinking</span>
+                  <div class="typing-indicator-dots">
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           
           <div class="input-area">
@@ -135,7 +225,9 @@
     <script src="command-intelligence.js"></script>
     <script src="command-confirm-dialog.js"></script>
     <script src="command-palette.js"></script>
+    <script src="tab-manager.js"></script>
     <script src="renderer.js"></script>
     <script src="file-explorer.js"></script>
+    <script src="codebase-explorer.js"></script>
   </body>
 </html>

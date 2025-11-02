@@ -3,6 +3,10 @@ const { Terminal } = require('xterm');
 const { FitAddon } = require('xterm-addon-fit');
 const { WebLinksAddon } = require('xterm-addon-web-links');
 
+// Global state for tab management
+const terminals = new Map(); // tabId -> terminal instance
+let tabManager = null;
+
 // Wait for DOM to be ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initializeApp);
@@ -11,82 +15,112 @@ if (document.readyState === 'loading') {
 }
 
 function initializeApp() {
-// State management
-const state = {
-  commandHistory: [],
-  historyIndex: -1,
-  isProcessing: false
-};
+  // Initialize TabManager first
+  tabManager = new window.TabManager();
+  
+  // Expose globally for cross-file access
+  window.tabManager = tabManager;
+  
+  // Expose initialization function for TabManager to call
+  window.initializeTerminalForTab = initializeTerminalForTab;
+  
+  // Setup global event listeners
+  setupGlobalEventListeners();
+}
 
-// Expose state globally for command palette
-window.fluxState = state;
+// Create terminal configuration
+function getTerminalConfig() {
+  return {
+    theme: {
+      background: '#1a1b26',
+      foreground: '#c0caf5',
+      cursor: '#c0caf5',
+      cursorAccent: '#1a1b26',
+      selection: 'rgba(122, 162, 247, 0.3)',
+      black: '#1a1b26',
+      red: '#f7768e',
+      green: '#9ece6a',
+      yellow: '#e0af68',
+      blue: '#7aa2f7',
+      magenta: '#bb9af7',
+      cyan: '#7dcfff',
+      white: '#c0caf5',
+      brightBlack: '#414868',
+      brightRed: '#f7768e',
+      brightGreen: '#9ece6a',
+      brightYellow: '#e0af68',
+      brightBlue: '#7aa2f7',
+      brightMagenta: '#bb9af7',
+      brightCyan: '#7dcfff',
+      brightWhite: '#c0caf5'
+    },
+    fontFamily: "'SF Mono', 'Monaco', 'Cascadia Code', 'Courier New', monospace",
+    fontSize: 14,
+    lineHeight: 1.5,
+    cursorBlink: true,
+    cursorStyle: 'block',
+    scrollback: 10000,
+    allowTransparency: true,
+    convertEol: true
+  };
+}
 
-// Initialize terminal
-const terminal = new Terminal({
-  theme: {
-    background: '#1a1b26',
-    foreground: '#c0caf5',
-    cursor: '#c0caf5',
-    cursorAccent: '#1a1b26',
-    selection: 'rgba(122, 162, 247, 0.3)',
-    black: '#1a1b26',
-    red: '#f7768e',
-    green: '#9ece6a',
-    yellow: '#e0af68',
-    blue: '#7aa2f7',
-    magenta: '#bb9af7',
-    cyan: '#7dcfff',
-    white: '#c0caf5',
-    brightBlack: '#414868',
-    brightRed: '#f7768e',
-    brightGreen: '#9ece6a',
-    brightYellow: '#e0af68',
-    brightBlue: '#7aa2f7',
-    brightMagenta: '#bb9af7',
-    brightCyan: '#7dcfff',
-    brightWhite: '#c0caf5'
-  },
-  fontFamily: "'SF Mono', 'Monaco', 'Cascadia Code', 'Courier New', monospace",
-  fontSize: 14,
-  lineHeight: 1.5,
-  cursorBlink: true,
-  cursorStyle: 'block',
-  scrollback: 10000,
-  allowTransparency: true,
-  convertEol: true  // Convert \n to \r\n for proper line breaks
-});
-
-// Load addons
-const fitAddon = new FitAddon();
-const webLinksAddon = new WebLinksAddon();
-terminal.loadAddon(fitAddon);
-terminal.loadAddon(webLinksAddon);
-
-// Open terminal
-const terminalElement = document.getElementById('terminal');
-console.log('Terminal element:', terminalElement);
-console.log('Terminal element dimensions:', terminalElement.offsetWidth, 'x', terminalElement.offsetHeight);
-
-terminal.open(terminalElement);
-console.log('Terminal opened');
-
-fitAddon.fit();
-console.log('FitAddon applied');
-console.log('Terminal cols:', terminal.cols, 'rows:', terminal.rows);
-
-// Welcome message
-terminal.writeln('\x1b[1;34m╔════════════════════════════════════════════╗\x1b[0m');
-terminal.writeln('\x1b[1;34m║\x1b[0m     \x1b[1;36mFlux AI Coding Assistant\x1b[0m            \x1b[1;34m║\x1b[0m');
-terminal.writeln('\x1b[1;34m╚════════════════════════════════════════════╝\x1b[0m');
-terminal.writeln('');
-terminal.writeln('\x1b[32m✓\x1b[0m Ready to assist with your coding tasks');
-terminal.writeln('\x1b[2mType a command below or ask Flux anything...\x1b[0m');
-terminal.writeln('');
-
-// Resize handler
-window.addEventListener('resize', () => {
+// Initialize terminal for a specific tab
+function initializeTerminalForTab(tabId, containerElement) {
+  console.log('Initializing terminal for tab:', tabId);
+  
+  // Create terminal instance
+  const terminal = new Terminal(getTerminalConfig());
+  
+  // Load addons
+  const fitAddon = new FitAddon();
+  const webLinksAddon = new WebLinksAddon();
+  terminal.loadAddon(fitAddon);
+  terminal.loadAddon(webLinksAddon);
+  
+  // Open terminal in container
+  terminal.open(containerElement);
   fitAddon.fit();
-});
+  
+  // Welcome message
+  terminal.writeln('\x1b[1;34m╔════════════════════════════════════════════╗\x1b[0m');
+  terminal.writeln('\x1b[1;34m║\x1b[0m     \x1b[1;36mFlux AI Coding Assistant\x1b[0m            \x1b[1;34m║\x1b[0m');
+  terminal.writeln('\x1b[1;34m╚════════════════════════════════════════════╝\x1b[0m');
+  terminal.writeln('');
+  terminal.writeln('\x1b[32m✓\x1b[0m Ready to assist with your coding tasks');
+  terminal.writeln('\x1b[2mType a command below or ask Flux anything...\x1b[0m');
+  terminal.writeln('');
+  
+  // Store terminal instance
+  terminals.set(tabId, {
+    terminal,
+    fitAddon,
+    state: {
+      commandHistory: [],
+      historyIndex: -1,
+      isProcessing: false
+    }
+  });
+  
+  // Update tab data (tabManager is available globally now)
+  if (window.tabManager && window.tabManager.tabs) {
+    const tab = window.tabManager.tabs.get(tabId);
+    if (tab) {
+      tab.terminal = terminal;
+    }
+  }
+  
+  return terminal;
+}
+
+// Setup global event listeners
+function setupGlobalEventListeners() {
+  // Resize handler for all terminals
+  window.addEventListener('resize', () => {
+    terminals.forEach(({ fitAddon }) => {
+      if (fitAddon) fitAddon.fit();
+    });
+  });
 
 // DOM elements
 const commandInput = document.getElementById('command-input');
@@ -97,21 +131,51 @@ const sidebar = document.getElementById('sidebar');
 const historyList = document.getElementById('history-list');
 const statusDot = document.getElementById('status-dot');
 const statusText = document.getElementById('status-text');
+const typingIndicator = document.getElementById('typing-indicator');
+
+// Show/hide typing indicator
+function showTypingIndicator() {
+  if (typingIndicator) {
+    typingIndicator.style.display = 'block';
+  }
+}
+
+function hideTypingIndicator() {
+  if (typingIndicator) {
+    typingIndicator.style.display = 'none';
+  }
+}
 
 // Update status
 function updateStatus(status, text) {
   statusDot.className = `status-dot ${status}`;
   statusText.textContent = text;
+  
+  // Show typing indicator when processing
+  if (status === 'processing') {
+    showTypingIndicator();
+  } else {
+    hideTypingIndicator();
+  }
+}
+
+// Get active terminal instance and state
+function getActiveTerminal() {
+  if (!tabManager || !tabManager.activeTabId) return null;
+  return terminals.get(tabManager.activeTabId);
 }
 
 // Add to history
 function addToHistory(command) {
+  const activeTerminal = getActiveTerminal();
+  if (!activeTerminal) return;
+  
   const timestamp = new Date().toLocaleTimeString();
-  state.commandHistory.unshift({ command, timestamp });
+  activeTerminal.state.commandHistory.unshift({ command, timestamp });
   
   // Keep only last 50 commands
-  if (state.commandHistory.length > 50) {
-    state.commandHistory.pop();
+  if (activeTerminal.state.commandHistory.length > 50) {
+    activeTerminal.state.commandHistory.pop();
   }
   
   // Update history UI
@@ -120,7 +184,10 @@ function addToHistory(command) {
 
 // Update history UI
 function updateHistoryUI() {
-  historyList.innerHTML = state.commandHistory
+  const activeTerminal = getActiveTerminal();
+  if (!activeTerminal) return;
+  
+  historyList.innerHTML = activeTerminal.state.commandHistory
     .map((item, index) => `
       <div class="history-item fade-in" data-index="${index}">
         <div class="history-item-command">${escapeHtml(item.command)}</div>
@@ -133,7 +200,7 @@ function updateHistoryUI() {
   document.querySelectorAll('.history-item').forEach(item => {
     item.addEventListener('click', () => {
       const index = parseInt(item.dataset.index);
-      commandInput.value = state.commandHistory[index].command;
+      commandInput.value = activeTerminal.state.commandHistory[index].command;
       commandInput.focus();
     });
   });
@@ -166,7 +233,8 @@ function updateSendButton(isProcessing) {
 
 // Cancel command
 function cancelCommand() {
-  if (!state.isProcessing) return;
+  const activeTerminal = getActiveTerminal();
+  if (!activeTerminal || !activeTerminal.state.isProcessing) return;
   
   // Send cancel signal to backend
   window.flux.cancelCommand();
@@ -177,18 +245,22 @@ function cancelCommand() {
   isTyping = false;
   
   // Update UI
-  terminal.writeln('\r\n\x1b[33m^C Command cancelled\x1b[0m');
-  terminal.scrollToBottom();
+  activeTerminal.terminal.writeln('\r\n\x1b[33m^C Command cancelled\x1b[0m');
+  activeTerminal.terminal.scrollToBottom();
   updateStatus('', 'Ready');
-  state.isProcessing = false;
+  activeTerminal.state.isProcessing = false;
   updateSendButton(false);
-  stopInactivityCheck(); // Stop checking for inactivity
+  hideTypingIndicator();
+  stopInactivityCheck();
 }
 
 // Send command
 function sendCommand() {
+  const activeTerminal = getActiveTerminal();
+  if (!activeTerminal) return;
+  
   // If processing, stop instead of send
-  if (state.isProcessing) {
+  if (activeTerminal.state.isProcessing) {
     cancelCommand();
     return;
   }
@@ -229,26 +301,29 @@ function sendCommand() {
 
 // Execute command (extracted for reuse)
 function executeCommand(command) {
+  const activeTerminal = getActiveTerminal();
+  if (!activeTerminal) return;
+  
   // Clear input
   commandInput.value = '';
   
   // Update status
   updateStatus('processing', 'Processing...');
-  state.isProcessing = true;
+  activeTerminal.state.isProcessing = true;
   updateSendButton(true);
   
   // Write command to terminal with nice formatting
-  terminal.writeln(`\r\n\x1b[1;36mYou: \x1b[0m${command}`);
-  terminal.scrollToBottom();
+  activeTerminal.terminal.writeln(`\r\n\x1b[1;36mYou: \x1b[0m${command}`);
+  activeTerminal.terminal.scrollToBottom();
   
   // Add to history
   addToHistory(command);
-  state.historyIndex = -1;
+  activeTerminal.state.historyIndex = -1;
   
   // Send to backend
   window.flux.sendCommand(command);
   
-  // Start inactivity detection (resets processing state if no output for 3 seconds)
+  // Start inactivity detection
   startInactivityCheck();
 }
 
@@ -261,13 +336,17 @@ let lastOutputTime = null;
 let inactivityCheckInterval = null;
 
 function typewriterEffect() {
+  const activeTerminal = getActiveTerminal();
+  if (!activeTerminal) return;
+  
   if (outputQueue.length === 0) {
     isTyping = false;
     skipAnimation = false;
     updateStatus('', 'Ready');
-    state.isProcessing = false;
+    activeTerminal.state.isProcessing = false;
     updateSendButton(false);
-    stopInactivityCheck(); // Stop checking for inactivity
+    hideTypingIndicator();
+    stopInactivityCheck();
     return;
   }
   
@@ -277,23 +356,23 @@ function typewriterEffect() {
   if (skipAnimation) {
     const remainingText = outputQueue.join('');
     outputQueue = [];
-    terminal.write(remainingText);
-    terminal.scrollToBottom();
+    activeTerminal.terminal.write(remainingText);
+    activeTerminal.terminal.scrollToBottom();
     isTyping = false;
     skipAnimation = false;
     updateStatus('', 'Ready');
-    state.isProcessing = false;
+    activeTerminal.state.isProcessing = false;
     updateSendButton(false);
-    stopInactivityCheck(); // Stop checking for inactivity
+    stopInactivityCheck();
     return;
   }
   
   const char = outputQueue.shift();
-  terminal.write(char);
+  activeTerminal.terminal.write(char);
   
-  // Auto-scroll periodically (not on every character for performance)
+  // Auto-scroll periodically
   if (outputQueue.length % 50 === 0) {
-    terminal.scrollToBottom();
+    activeTerminal.terminal.scrollToBottom();
   }
   
   setTimeout(typewriterEffect, TYPING_SPEED);
@@ -309,20 +388,22 @@ function startInactivityCheck() {
   }
   
   inactivityCheckInterval = setInterval(() => {
+    const activeTerminal = getActiveTerminal();
+    if (!activeTerminal) return;
+    
     // If we're still processing but haven't received output in 3 seconds
-    // and there's no more output queued, assume command finished
-    if (state.isProcessing && lastOutputTime) {
+    if (activeTerminal.state.isProcessing && lastOutputTime) {
       const timeSinceOutput = Date.now() - lastOutputTime;
       if (timeSinceOutput > 3000 && outputQueue.length === 0 && !isTyping) {
         console.log('No output for 3s, resetting processing state');
         clearInterval(inactivityCheckInterval);
         inactivityCheckInterval = null;
-        state.isProcessing = false;
+        activeTerminal.state.isProcessing = false;
         updateSendButton(false);
         updateStatus('', 'Ready');
       }
     }
-  }, 500); // Check every 500ms
+  }, 500);
 }
 
 function stopInactivityCheck() {
@@ -336,7 +417,7 @@ function stopInactivityCheck() {
 // Handle flux output with typewriter effect
 window.flux.onOutput((data) => {
   console.log('Received flux output:', data.length, 'chars');
-  lastOutputTime = Date.now(); // Update last output time
+  lastOutputTime = Date.now();
   
   // Add characters to queue
   for (let i = 0; i < data.length; i++) {
@@ -351,11 +432,14 @@ window.flux.onOutput((data) => {
 
 // Handle flux errors
 window.flux.onError((data) => {
-  terminal.write(`\x1b[31m${data}\x1b[0m`);
+  const activeTerminal = getActiveTerminal();
+  if (activeTerminal) {
+    activeTerminal.terminal.write(`\x1b[31m${data}\x1b[0m`);
+    activeTerminal.state.isProcessing = false;
+  }
   updateStatus('error', 'Error');
-  state.isProcessing = false;
   updateSendButton(false);
-  stopInactivityCheck(); // Stop checking for inactivity
+  stopInactivityCheck();
 });
 
 // Handle flux cancellation
@@ -389,20 +473,24 @@ commandInput.addEventListener('keydown', (e) => {
   // History navigation with Up/Down arrows
   if (e.key === 'ArrowUp') {
     e.preventDefault();
-    if (state.historyIndex < state.commandHistory.length - 1) {
-      state.historyIndex++;
-      commandInput.value = state.commandHistory[state.historyIndex].command;
+    const activeTerminal = getActiveTerminal();
+    if (activeTerminal && activeTerminal.state.historyIndex < activeTerminal.state.commandHistory.length - 1) {
+      activeTerminal.state.historyIndex++;
+      commandInput.value = activeTerminal.state.commandHistory[activeTerminal.state.historyIndex].command;
     }
   }
   
   if (e.key === 'ArrowDown') {
     e.preventDefault();
-    if (state.historyIndex > 0) {
-      state.historyIndex--;
-      commandInput.value = state.commandHistory[state.historyIndex].command;
-    } else if (state.historyIndex === 0) {
-      state.historyIndex = -1;
-      commandInput.value = '';
+    const activeTerminal = getActiveTerminal();
+    if (activeTerminal) {
+      if (activeTerminal.state.historyIndex > 0) {
+        activeTerminal.state.historyIndex--;
+        commandInput.value = activeTerminal.state.commandHistory[activeTerminal.state.historyIndex].command;
+      } else if (activeTerminal.state.historyIndex === 0) {
+        activeTerminal.state.historyIndex = -1;
+        commandInput.value = '';
+      }
     }
   }
 });
@@ -411,12 +499,15 @@ sendBtn.addEventListener('click', sendCommand);
 
 // Clear button
 clearBtn.addEventListener('click', () => {
-  // Also clear any pending output
+  const activeTerminal = getActiveTerminal();
+  if (!activeTerminal) return;
+  
+  // Clear any pending output
   outputQueue = [];
   skipAnimation = false;
   isTyping = false;
-  terminal.clear();
-  terminal.writeln('\x1b[2mTerminal cleared\x1b[0m');
+  activeTerminal.terminal.clear();
+  activeTerminal.terminal.writeln('\x1b[2mTerminal cleared\x1b[0m');
 });
 
 // Toggle sidebar
@@ -468,6 +559,9 @@ if (changeDirBtn) {
 const settingsBtn = document.getElementById('settings-btn');
 if (settingsBtn) {
   settingsBtn.addEventListener('click', () => {
+    const activeTerminal = getActiveTerminal();
+    if (!activeTerminal) return;
+    
     const speeds = [
       { name: 'Instant', value: 0 },
       { name: 'Very Fast', value: 5 },
@@ -484,8 +578,8 @@ if (settingsBtn) {
     TYPING_SPEED = speeds[nextIndex].value;
     
     // Show feedback in terminal
-    terminal.writeln(`\r\n\x1b[90mTyping speed: ${speeds[nextIndex].name}\x1b[0m`);
-    terminal.scrollToBottom();
+    activeTerminal.terminal.writeln(`\r\n\x1b[90mTyping speed: ${speeds[nextIndex].name}\x1b[0m`);
+    activeTerminal.terminal.scrollToBottom();
   });
 }
 
