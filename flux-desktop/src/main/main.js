@@ -90,7 +90,7 @@ function createWindow () {
       }
     });
 
-    fluxProcesses.set(tabId, fluxProcess);
+    fluxProcesses.set(tabId, { process: fluxProcess, cwd: workingDir });
     return fluxProcess;
   }
 
@@ -101,31 +101,42 @@ function createWindow () {
   });
 
   ipcMain.on('flux-command', (event, { tabId, command }) => {
-    const fluxProcess = fluxProcesses.get(tabId);
-    if (fluxProcess && !fluxProcess.killed) {
+    const fluxData = fluxProcesses.get(tabId);
+    if (fluxData && fluxData.process && !fluxData.process.killed) {
       console.log(`Sending command to tab ${tabId}:`, command);
-      fluxProcess.stdin.write(command + '\n');
+      fluxData.process.stdin.write(command + '\n');
     } else {
       console.error(`No flux process found for tab ${tabId}`);
     }
   });
 
   ipcMain.on('flux-cancel', (event, { tabId }) => {
-    const fluxProcess = fluxProcesses.get(tabId);
-    if (fluxProcess && !fluxProcess.killed) {
+    const fluxData = fluxProcesses.get(tabId);
+    if (fluxData && fluxData.process && !fluxData.process.killed) {
       console.log(`Cancelling command for tab ${tabId}`);
-      fluxProcess.kill('SIGINT');
-      if (!win.isDestroyed()) {
-        win.webContents.send('flux-cancelled', { tabId });
-      }
+      
+      // Store the cwd before killing process
+      const savedCwd = fluxData.cwd;
+      
+      // Kill the process
+      fluxData.process.kill('SIGINT');
+      
+      // Wait a bit for process to die, then respawn in same directory
+      setTimeout(() => {
+        console.log(`Respawning flux process for tab ${tabId} in ${savedCwd}`);
+        spawnFluxForTab(tabId, savedCwd);
+        if (!win.isDestroyed()) {
+          win.webContents.send('flux-cancelled', { tabId });
+        }
+      }, 100);
     }
   });
 
   ipcMain.on('flux-destroy-process', (event, { tabId }) => {
-    const fluxProcess = fluxProcesses.get(tabId);
-    if (fluxProcess && !fluxProcess.killed) {
+    const fluxData = fluxProcesses.get(tabId);
+    if (fluxData && fluxData.process && !fluxData.process.killed) {
       console.log(`Destroying flux process for tab ${tabId}`);
-      fluxProcess.kill();
+      fluxData.process.kill();
       fluxProcesses.delete(tabId);
     }
   });
@@ -258,10 +269,10 @@ app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
   // Kill all flux processes
-  fluxProcesses.forEach((process, tabId) => {
-    if (process && !process.killed) {
+  fluxProcesses.forEach((fluxData, tabId) => {
+    if (fluxData && fluxData.process && !fluxData.process.killed) {
       console.log(`Cleaning up flux process for tab ${tabId}`);
-      process.kill();
+      fluxData.process.kill();
     }
   });
   fluxProcesses.clear();
@@ -279,10 +290,10 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   // Kill all flux processes
-  fluxProcesses.forEach((process, tabId) => {
-    if (process && !process.killed) {
+  fluxProcesses.forEach((fluxData, tabId) => {
+    if (fluxData && fluxData.process && !fluxData.process.killed) {
       console.log(`Cleaning up flux process for tab ${tabId}`);
-      process.kill();
+      fluxData.process.kill();
     }
   });
   fluxProcesses.clear();
