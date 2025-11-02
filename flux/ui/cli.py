@@ -23,6 +23,7 @@ from flux.core.suggestions import SuggestionsEngine, Priority
 from flux.core.workspace import Workspace, TaskPriority, TaskStatus
 from flux.core.failure_tracker import FailureTracker
 from flux.core.background_processor import SmartBackgroundProcessor
+from flux.core.code_validator import CodeValidator
 from flux.llm.provider_factory import create_provider
 from flux.llm.prompts import SYSTEM_PROMPT
 from flux.tools.base import ToolRegistry
@@ -85,11 +86,14 @@ class CLI:
         # Initialize smart background processor
         self.bg_processor = SmartBackgroundProcessor(cwd)
         
+        # Initialize code validator for self-checking
+        self.code_validator = CodeValidator(cwd)
+        
         # Initialize tool registry
         self.tools = ToolRegistry()
         self.tools.register(ReadFilesTool(cwd, workflow_enforcer=self.workflow, background_processor=self.bg_processor))
-        self.tools.register(WriteFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
-        self.tools.register(EditFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
+        self.tools.register(WriteFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval, code_validator=self.code_validator))
+        self.tools.register(EditFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval, code_validator=self.code_validator))
         self.tools.register(InsertAtLineTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
         self.tools.register(PreviewEditTool(cwd))
         self.tools.register(RunCommandTool(cwd))
@@ -254,9 +258,11 @@ class CLI:
                         "  [green]/tasks[/green] - List all tasks\n"
                         "  [green]/summary[/green] - Show work summary for today\n"
                         "  [green]/stats[/green] - Show project statistics\n"
-                        "  [green]/performance[/green] (or [green]/perf[/green]) - Show background processing stats"
+                        "  [green]/performance[/green] (or [green]/perf[/green]) - Show background processing stats\n"
+                        "\n[bold cyan]Code Quality:[/bold cyan]\n"
+                        "  [green]/validate[/green] - Validate modified files for errors\n"
                     )
-                    self.console.print(Panel(help_text, title="📖 Help", border_style="blue"))
+                    self.console.print(Panel(help_text, title="\ud83d\udcd6 Help", border_style="blue"))
                     continue
 
                 
@@ -412,6 +418,19 @@ class CLI:
                         f"Predictions: {metrics.predictions_made}"
                     )
                     self.console.print(Panel(summary, title="⚡ Background Processing", border_style="blue"))
+                    continue
+                
+                if query.lower() == '/validate':
+                    # Validate modified files in this session
+                    modified_files = self.workflow.get_modified_files()
+                    if not modified_files:
+                        self.console.print("[dim]No modified files to validate[/dim]")
+                        continue
+                    
+                    self.console.print(f"\n[bold]Validating {len(modified_files)} files...[/bold]")
+                    result = self.code_validator.validate_before_completion(modified_files)
+                    report = self.code_validator.get_validation_report(result)
+                    self.console.print(report)
                     continue
 
                 if query.lower() == '/help':

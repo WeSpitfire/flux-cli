@@ -8,6 +8,7 @@ from flux.tools.base import Tool, ToolParameter
 from flux.core.diff import DiffPreview
 from flux.core.syntax_checker import SyntaxChecker
 from flux.core.errors import file_not_found_error, search_not_found_error, syntax_error_response
+from flux.core.code_validator import CodeValidator
 from rich.console import Console
 
 
@@ -183,12 +184,13 @@ ON ERROR: Use list_files or find_files to discover correct paths."""
 class WriteFileTool(Tool):
     """Tool for writing/creating files."""
     
-    def __init__(self, cwd: Path, undo_manager=None, workflow_enforcer=None, approval_manager=None):
+    def __init__(self, cwd: Path, undo_manager=None, workflow_enforcer=None, approval_manager=None, code_validator=None):
         """Initialize with current working directory."""
         self.cwd = cwd
         self.undo_manager = undo_manager
         self.workflow = workflow_enforcer
         self.approval = approval_manager
+        self.code_validator = code_validator or CodeValidator(cwd)
     
     @property
     def name(self) -> str:
@@ -319,6 +321,35 @@ ON ERROR: Check file permissions and path validity."""
                         "path": str(file_path)
                     }
             
+            # CODE VALIDATION: Check for import errors after write
+            if file_path.suffix == '.py' and self.code_validator:
+                validation_result = self.code_validator.validate_file_operation(file_path, "write")
+                if not validation_result.is_valid:
+                    # Add validation warnings/errors to response
+                    result = {
+                        "success": True,
+                        "path": str(file_path),
+                        "bytes_written": len(content.encode('utf-8')),
+                        "validation_warnings": [
+                            f"{e['message']}" for e in validation_result.errors
+                        ]
+                    }
+                    if validation_result.suggestions:
+                        result["validation_suggestions"] = validation_result.suggestions
+                    
+                    # Record undo snapshot
+                    if self.undo_manager:
+                        desc = "Created" if old_content is None else "Overwrote"
+                        self.undo_manager.snapshot_operation(
+                            operation="write",
+                            file_path=file_path,
+                            old_content=old_content,
+                            new_content=content,
+                            description=f"{desc} {file_path.name}"
+                        )
+                    
+                    return result
+            
             # Record undo snapshot
             if self.undo_manager:
                 desc = "Created" if old_content is None else "Overwrote"
@@ -342,7 +373,7 @@ ON ERROR: Check file permissions and path validity."""
 class EditFileTool(Tool):
     """Tool for editing files with diff-based replacements."""
     
-    def __init__(self, cwd: Path, show_diff: bool = True, undo_manager=None, workflow_enforcer=None, approval_manager=None):
+    def __init__(self, cwd: Path, show_diff: bool = True, undo_manager=None, workflow_enforcer=None, approval_manager=None, code_validator=None):
         """Initialize with current working directory."""
         self.cwd = cwd
         self.show_diff = show_diff
@@ -351,6 +382,7 @@ class EditFileTool(Tool):
         self.approval = approval_manager
         self.console = Console()
         self.diff_preview = DiffPreview(self.console)
+        self.code_validator = code_validator or CodeValidator(cwd)
     
     @property
     def name(self) -> str:
@@ -522,12 +554,24 @@ ON ERROR: Re-read file, copy exact text including all spaces/tabs. Check indenta
             
             additions, deletions, modifications = self.diff_preview.get_change_stats(content, new_content)
             
-            return {
+            result = {
                 "success": True,
                 "path": str(file_path),
                 "old_lines": len(content.splitlines()),
                 "new_lines": len(new_content.splitlines()),
                 "diff_summary": f"+{additions} -{deletions} ~{modifications}"
             }
+            
+            # CODE VALIDATION: Check for import errors after edit
+            if file_path.suffix == '.py' and self.code_validator:
+                validation_result = self.code_validator.validate_file_operation(file_path, "edit")
+                if not validation_result.is_valid:
+                    result["validation_warnings"] = [
+                        f"{e['message']}" for e in validation_result.errors
+                    ]
+                    if validation_result.suggestions:
+                        result["validation_suggestions"] = validation_result.suggestions
+            
+            return result
         except Exception as e:
             return {"error": str(e)}
