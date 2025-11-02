@@ -357,33 +357,34 @@ ipcMain.handle('search-files', async (event, { directory, query, maxResults = 50
   return results;
 });
 
-// IPC handler to get codebase stats from Flux CLI
+// IPC handler to get codebase stats
+// TODO: Integrate with real Flux CLI graph data when available
 ipcMain.handle('get-codebase-stats', async () => {
-  return new Promise((resolve, reject) => {
-    const fluxProcess = spawn('flux', ['--stats'], { shell: true });
-
-    let output = '';
-    fluxProcess.stdout.on('data', (data) => {
-      output += data.toString();
-    });
-
-    fluxProcess.stderr.on('data', (data) => {
-      console.error('Flux CLI error:', data.toString());
-    });
-
-    fluxProcess.on('close', (code) => {
-      if (code === 0) {
-        try {
-          const stats = JSON.parse(output);
-          resolve(stats);
-        } catch (error) {
-          reject('Failed to parse stats output');
-        }
-      } else {
-        reject('Flux CLI exited with code ' + code);
-      }
-    });
-  });
+  // Return mock data for now
+  return {
+    stats: {
+      totalFiles: 247,
+      totalEntities: 1834,
+      contextTokens: 125000
+    },
+    hotFiles: [
+      { path: 'src/renderer/renderer.js', changes: 15, lastModified: '2 hours ago' },
+      { path: 'src/renderer/terminal-formatter.js', changes: 8, lastModified: '3 hours ago' },
+      { path: 'src/renderer/styles.css', changes: 12, lastModified: '1 hour ago' },
+      { path: 'src/main/main.js', changes: 5, lastModified: '4 hours ago' }
+    ],
+    dependencies: [
+      { name: 'electron', type: 'npm', usedBy: 12 },
+      { name: 'xterm', type: 'npm', usedBy: 8 },
+      { name: 'xterm-addon-fit', type: 'npm', usedBy: 3 }
+    ],
+    entities: [
+      { name: 'Terminal', type: 'class', file: 'src/renderer/renderer.js', line: 42 },
+      { name: 'TerminalFormatter', type: 'class', file: 'src/renderer/terminal-formatter.js', line: 6 },
+      { name: 'initializeApp', type: 'function', file: 'src/renderer/renderer.js', line: 21 },
+      { name: 'formatOutput', type: 'function', file: 'src/renderer/terminal-formatter.js', line: 52 }
+    ]
+  };
 });
 
 // IPC handler to request graph data from a specific Flux process
