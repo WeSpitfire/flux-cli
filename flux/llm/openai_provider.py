@@ -59,6 +59,9 @@ class OpenAIProvider(BaseLLMProvider):
         # Prune conversation history to stay within token limits
         pruned_messages = self.context_manager.prune_history(self.messages)
         
+        # IMPORTANT: Update self.messages with pruned version to prevent unbounded growth
+        self.messages = pruned_messages.copy()
+        
         # Add pruned conversation history
         messages.extend(pruned_messages)
         
