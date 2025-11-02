@@ -61,6 +61,11 @@ class TabManager {
 
     // Switch to new tab
     this.switchTab(tabId);
+    
+    // Trigger session save
+    if (window.sessionManager) {
+      window.sessionManager.scheduleSave();
+    }
 
     return tabId;
   }
@@ -162,6 +167,11 @@ class TabManager {
         this.switchTab(remainingTabs[remainingTabs.length - 1]);
       }
     }
+    
+    // Trigger session save
+    if (window.sessionManager) {
+      window.sessionManager.scheduleSave();
+    }
   }
 
   updateTabLabel(tabId, label) {
@@ -172,6 +182,11 @@ class TabManager {
     const labelEl = tab.element.querySelector('.tab-label');
     if (labelEl) {
       labelEl.textContent = this.escapeHtml(label);
+    }
+    
+    // Trigger session save
+    if (window.sessionManager) {
+      window.sessionManager.scheduleSave();
     }
   }
 

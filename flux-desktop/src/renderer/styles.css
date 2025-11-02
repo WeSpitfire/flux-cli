@@ -266,13 +266,21 @@ html, body {
   background-color: var(--bg-primary);
   padding: 16px;
   position: relative;
+  min-height: 0; /* Allow flexbox to shrink properly */
 }
 
-#terminal {
-  width: 100%;
+#terminal-container {
   height: 100%;
-  position: relative;
+  width: 100%;
+  overflow: hidden;
 }
+
+.terminal-instance {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
 
 /* Ensure xterm elements are visible */
 .xterm {

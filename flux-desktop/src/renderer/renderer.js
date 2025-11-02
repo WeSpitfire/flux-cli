@@ -6,6 +6,10 @@ const { WebLinksAddon } = require('xterm-addon-web-links');
 // Global state for tab management
 const terminals = new Map(); // tabId -> terminal instance
 let tabManager = null;
+let sessionManager = null;
+
+// Expose terminals globally for session management
+window.terminals = terminals;
 
 // Wait for DOM to be ready
 if (document.readyState === 'loading') {
@@ -23,6 +27,11 @@ function initializeApp() {
   
   // Expose initialization function for TabManager to call
   window.initializeTerminalForTab = initializeTerminalForTab;
+  
+  // Initialize SessionManager and restore previous session
+  sessionManager = new window.SessionManager();
+  sessionManager.init(tabManager);
+  window.sessionManager = sessionManager;
   
   // Setup global event listeners
   setupGlobalEventListeners();
@@ -180,6 +189,11 @@ function addToHistory(command) {
   
   // Update history UI
   updateHistoryUI();
+  
+  // Schedule session save
+  if (window.sessionManager) {
+    window.sessionManager.scheduleSave();
+  }
 }
 
 // Update history UI
@@ -205,6 +219,9 @@ function updateHistoryUI() {
     });
   });
 }
+
+// Expose updateHistoryUI globally for session manager
+window.updateHistoryUI = updateHistoryUI;
 
 // Escape HTML
 function escapeHtml(text) {
