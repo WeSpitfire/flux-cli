@@ -29,11 +29,14 @@ function createWindow () {
     
     // Expand tilde in cwd if present
     let workingDir = cwd || projectRoot;
-    if (workingDir.startsWith('~')) {
+    if (workingDir.startsWith('~/') || workingDir === '~') {
       const homeDir = require('os').homedir();
-      workingDir = workingDir.replace(/^~/, homeDir);
+      workingDir = path.join(homeDir, workingDir.slice(2)); // Remove ~/ and join with home
     }
-    workingDir = path.resolve(workingDir);
+    // If it's not an absolute path, resolve it
+    if (!path.isAbsolute(workingDir)) {
+      workingDir = path.resolve(workingDir);
+    }
     
     console.log(`[Tab ${tabId}] Project root:`, projectRoot);
     console.log(`[Tab ${tabId}] Venv flux path:`, venvFluxPath);

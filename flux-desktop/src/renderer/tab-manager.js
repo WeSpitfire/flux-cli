@@ -14,7 +14,7 @@ class TabManager {
     this.init();
   }
 
-  init() {
+  async init() {
     // Setup event listeners
     if (this.elements.newTabBtn) {
       this.elements.newTabBtn.addEventListener('click', () => this.createTab());
@@ -23,14 +23,25 @@ class TabManager {
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => this.handleKeyboard(e));
 
-    // Create initial tab
-    this.createTab('flux-cli', '~/flux-cli');
+    // Get the actual project root from main process
+    let projectRoot;
+    try {
+      projectRoot = await window.fileSystem.getCwd();
+      // Go up one level from flux-desktop to flux-cli
+      projectRoot = await window.fileSystem.joinPath(projectRoot, '..');
+    } catch (err) {
+      console.error('Failed to get cwd:', err);
+      projectRoot = null;
+    }
+
+    // Create initial tab with absolute path
+    this.createTab('flux-cli', projectRoot);
   }
 
   createTab(label = null, cwd = null) {
     const tabId = `tab-${this.nextTabId++}`;
     const defaultLabel = label || `Terminal ${this.nextTabId - 1}`;
-    const defaultCwd = cwd || '~';
+    const defaultCwd = cwd || null; // null will use projectRoot in main process
 
     // Create tab data
     const tabData = {
