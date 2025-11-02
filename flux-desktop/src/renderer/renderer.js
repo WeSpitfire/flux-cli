@@ -196,6 +196,39 @@ function sendCommand() {
   const command = commandInput.value.trim();
   if (!command) return;
   
+  // Analyze command with intelligence system
+  if (window.commandIntelligence) {
+    const analysis = window.commandIntelligence.analyzeCommand(command);
+    
+    // If command needs confirmation or has typo, show dialog
+    if (analysis.needsConfirmation || analysis.typoCorrection) {
+      window.commandConfirmDialog.show(
+        command,
+        analysis,
+        // On confirm - execute command
+        (confirmedCommand) => {
+          executeCommand(confirmedCommand);
+        },
+        // On cancel - do nothing
+        () => {
+          // Command cancelled
+        },
+        // On edit - put back in input
+        (editedCommand) => {
+          commandInput.value = editedCommand;
+          commandInput.focus();
+        }
+      );
+      return;
+    }
+  }
+  
+  // Safe command - execute directly
+  executeCommand(command);
+}
+
+// Execute command (extracted for reuse)
+function executeCommand(command) {
   // Clear input
   commandInput.value = '';
   
