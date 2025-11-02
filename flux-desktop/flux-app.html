@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flux - The Terminal That Has Your Back</title>
+  
+  <!-- All Feature Stylesheets -->
+  <link rel="stylesheet" href="src/renderer/command-palette.css">
+  <link rel="stylesheet" href="src/renderer/command-confirm-dialog.css">
+  <link rel="stylesheet" href="src/renderer/workflow-ui.css">
+  <link rel="stylesheet" href="src/renderer/workflow-manager.css">
+  
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #0a0a0a;
+      color: #fff;
+      overflow: hidden;
+    }
+    
+    /* App Layout */
+    .flux-app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    
+    /* Header */
+    .flux-header {
+      background: #1a1a1a;
+      border-bottom: 1px solid #3a3a3a;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+      flex-shrink: 0;
+    }
+    
+    .flux-logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .flux-logo-icon {
+      font-size: 24px;
+    }
+    
+    .flux-logo-text {
+      font-size: 18px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .flux-nav {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .flux-nav-btn {
+      padding: 8px 16px;
+      background: none;
+      border: 1px solid #3a3a3a;
+      border-radius: 6px;
+      color: #aaa;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .flux-nav-btn:hover {
+      background: #2a2a2a;
+      border-color: #6366f1;
+      color: #fff;
+    }
+    
+    .flux-nav-btn.active {
+      background: #6366f1;
+      border-color: #6366f1;
+      color: #fff;
+    }
+    
+    .flux-shortcuts-btn {
+      padding: 8px 12px;
+      background: none;
+      border: 1px solid #3a3a3a;
+      border-radius: 6px;
+      color: #aaa;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .flux-shortcuts-btn:hover {
+      background: #2a2a2a;
+      color: #fff;
+    }
+    
+    /* Terminal Area */
+    .flux-terminal {
+      flex: 1;
+      background: #0a0a0a;
+      padding: 24px;
+      overflow-y: auto;
+      position: relative;
+    }
+    
+    .flux-welcome {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 60px 20px;
+    }
+    
+    .flux-welcome h1 {
+      font-size: 48px;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .flux-welcome-subtitle {
+      font-size: 20px;
+      color: #888;
+      margin-bottom: 40px;
+    }
+    
+    .flux-feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      margin-bottom: 40px;
+    }
+    
+    .flux-feature-card {
+      background: #1e1e1e;
+      border: 1px solid #3a3a3a;
+      border-radius: 12px;
+      padding: 24px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .flux-feature-card:hover {
+      border-color: #6366f1;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(99, 102, 241, 0.2);
+    }
+    
+    .flux-feature-icon {
+      font-size: 32px;
+      margin-bottom: 12px;
+    }
+    
+    .flux-feature-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #fff;
+    }
+    
+    .flux-feature-desc {
+      font-size: 14px;
+      color: #888;
+      margin-bottom: 12px;
+      line-height: 1.5;
+    }
+    
+    .flux-feature-shortcut {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #6366f1;
+      font-family: monospace;
+    }
+    
+    .flux-quick-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    
+    .flux-action-btn {
+      padding: 12px 24px;
+      background: #6366f1;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .flux-action-btn:hover {
+      background: #5558e3;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    }
+    
+    .flux-action-btn-secondary {
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      color: #aaa;
+    }
+    
+    .flux-action-btn-secondary:hover {
+      background: #323232;
+      color: #fff;
+      box-shadow: none;
+    }
+    
+    /* Command Output Area */
+    .flux-output {
+      display: none;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    .flux-output.active {
+      display: block;
+    }
+    
+    .flux-output-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    
+    .flux-output-title {
+      font-size: 24px;
+      font-weight: 600;
+    }
+    
+    .flux-output-clear {
+      padding: 8px 16px;
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      border-radius: 6px;
+      color: #aaa;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .flux-output-clear:hover {
+      background: #323232;
+      color: #fff;
+    }
+    
+    .flux-output-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    
+    .flux-output-item {
+      background: #1e1e1e;
+      border: 1px solid #3a3a3a;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    
+    .flux-output-command {
+      font-family: 'Monaco', monospace;
+      font-size: 14px;
+      color: #6366f1;
+      margin-bottom: 8px;
+    }
+    
+    .flux-output-result {
+      font-family: 'Monaco', monospace;
+      font-size: 13px;
+      color: #aaa;
+      white-space: pre-wrap;
+    }
+    
+    /* Keyboard Shortcuts Overlay */
+    .flux-shortcuts-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 20000;
+      animation: fadeIn 0.2s ease;
+    }
+    
+    .flux-shortcuts-overlay.active {
+      display: flex;
+    }
+    
+    .flux-shortcuts-dialog {
+      background: #1e1e1e;
+      border: 1px solid #3a3a3a;
+      border-radius: 12px;
+      padding: 32px;
+      max-width: 600px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    
+    .flux-shortcuts-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+    
+    .flux-shortcuts-title {
+      font-size: 24px;
+      font-weight: 600;
+    }
+    
+    .flux-shortcuts-close {
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 32px;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0;
+    }
+    
+    .flux-shortcuts-close:hover {
+      color: #fff;
+    }
+    
+    .flux-shortcuts-section {
+      margin-bottom: 24px;
+    }
+    
+    .flux-shortcuts-section h3 {
+      font-size: 16px;
+      color: #6366f1;
+      margin-bottom: 12px;
+    }
+    
+    .flux-shortcut-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    
+    .flux-shortcut-item:last-child {
+      border-bottom: none;
+    }
+    
+    .flux-shortcut-desc {
+      font-size: 14px;
+      color: #aaa;
+    }
+    
+    .flux-shortcut-keys {
+      display: flex;
+      gap: 4px;
+    }
+    
+    .flux-key {
+      padding: 4px 8px;
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #fff;
+      font-family: monospace;
+    }
+    
+    /* Scrollbar */
+    .flux-terminal::-webkit-scrollbar,
+    .flux-shortcuts-dialog::-webkit-scrollbar {
+      width: 8px;
+    }
+    
+    .flux-terminal::-webkit-scrollbar-track,
+    .flux-shortcuts-dialog::-webkit-scrollbar-track {
+      background: #0a0a0a;
+    }
+    
+    .flux-terminal::-webkit-scrollbar-thumb,
+    .flux-shortcuts-dialog::-webkit-scrollbar-thumb {
+      background: #3a3a3a;
+      border-radius: 4px;
+    }
+    
+    .flux-terminal::-webkit-scrollbar-thumb:hover,
+    .flux-shortcuts-dialog::-webkit-scrollbar-thumb:hover {
+      background: #4a4a4a;
+    }
+  </style>
+</head>
+<body>
+  <div class="flux-app">
+    <!-- Header -->
+    <header class="flux-header">
+      <div class="flux-logo">
+        <div class="flux-logo-icon">⚡</div>
+        <div class="flux-logo-text">Flux</div>
+      </div>
+      
+      <nav class="flux-nav">
+        <button class="flux-nav-btn" data-feature="palette">
+          🔍 Command Palette
+        </button>
+        <button class="flux-nav-btn" data-feature="intelligence">
+          🧠 Intelligence
+        </button>
+        <button class="flux-nav-btn" data-feature="workflows">
+          📦 Workflows
+        </button>
+      </nav>
+      
+      <button class="flux-shortcuts-btn" onclick="showShortcuts()">
+        ⌨️ Shortcuts
+      </button>
+    </header>
+    
+    <!-- Terminal Area -->
+    <main class="flux-terminal">
+      <!-- Welcome Screen -->
+      <div class="flux-welcome">
+        <h1>⚡ Flux</h1>
+        <p class="flux-welcome-subtitle">The terminal that has your back</p>
+        
+        <div class="flux-feature-grid">
+          <div class="flux-feature-card" onclick="openCommandPalette()">
+            <div class="flux-feature-icon">🔍</div>
+            <div class="flux-feature-title">Command Palette</div>
+            <div class="flux-feature-desc">
+              Search commands, files, and history with fuzzy matching
+            </div>
+            <div class="flux-feature-shortcut">
+              <span class="flux-key">Cmd+K</span>
+            </div>
+          </div>
+          
+          <div class="flux-feature-card" onclick="showIntelligenceDemo()">
+            <div class="flux-feature-icon">🧠</div>
+            <div class="flux-feature-title">Command Intelligence</div>
+            <div class="flux-feature-desc">
+              Safety checks and explanations before running risky commands
+            </div>
+            <div class="flux-feature-shortcut">
+              Auto-detect
+            </div>
+          </div>
+          
+          <div class="flux-feature-card" onclick="openWorkflowManager()">
+            <div class="flux-feature-icon">📦</div>
+            <div class="flux-feature-title">Workflow Automation</div>
+            <div class="flux-feature-desc">
+              Create, manage, and run automated command sequences
+            </div>
+            <div class="flux-feature-shortcut">
+              <span class="flux-key">Cmd+Shift+M</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="flux-quick-actions">
+          <button class="flux-action-btn" onclick="startTour()">
+            🚀 Quick Tour
+          </button>
+          <button class="flux-action-btn-secondary" onclick="showDocs()">
+            📚 Documentation
+          </button>
+          <button class="flux-action-btn-secondary" onclick="runTests()">
+            🧪 Run Tests
+          </button>
+        </div>
+      </div>
+      
+      <!-- Output Area (hidden by default) -->
+      <div class="flux-output" id="flux-output">
+        <div class="flux-output-header">
+          <h2 class="flux-output-title">Command History</h2>
+          <button class="flux-output-clear" onclick="clearOutput()">Clear</button>
+        </div>
+        <div class="flux-output-list" id="flux-output-list"></div>
+      </div>
+    </main>
+  </div>
+  
+  <!-- Keyboard Shortcuts Overlay -->
+  <div class="flux-shortcuts-overlay" id="shortcuts-overlay">
+    <div class="flux-shortcuts-dialog">
+      <div class="flux-shortcuts-header">
+        <h2 class="flux-shortcuts-title">⌨️ Keyboard Shortcuts</h2>
+        <button class="flux-shortcuts-close" onclick="hideShortcuts()">×</button>
+      </div>
+      
+      <div class="flux-shortcuts-section">
+        <h3>Global</h3>
+        <div class="flux-shortcut-item">
+          <span class="flux-shortcut-desc">Show shortcuts</span>
+          <div class="flux-shortcut-keys">
+            <span class="flux-key">Cmd+/</span>
+          </div>
+        </div>
+        <div class="flux-shortcut-item">
+          <span class="flux-shortcut-desc">Close dialogs</span>
+          <div class="flux-shortcut-keys">
+            <span class="flux-key">Esc</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="flux-shortcuts-section">
+        <h3>Command Palette</h3>
+        <div class="flux-shortcut-item">
+          <span class="flux-shortcut-desc">Open palette</span>
+          <div class="flux-shortcut-keys">
+            <span class="flux-key">Cmd+K</span>
+          </div>
+        </div>
+        <div class="flux-shortcut-item">
+          <span class="flux-shortcut-desc">Navigate results</span>
+          <div class="flux-shortcut-keys">
+            <span class="flux-key">↑</span>
+            <span class="flux-key">↓</span>
+          </div>
+        </div>
+        <div class="flux-shortcut-item">
+          <span class="flux-shortcut-desc">Select result</span>
+          <div class="flux-shortcut-keys">
+            <span class="flux-key">Enter</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="flux-shortcuts-section">
+        <h3>Workflows</h3>
+        <div class="flux-shortcut-item">
+          <span class="flux-shortcut-desc">Open workflow manager</span>
+          <div class="flux-shortcut-keys">
+            <span class="flux-key">Cmd+Shift+M</span>
+          </div>
+        </div>
+        <div class="flux-shortcut-item">
+          <span class="flux-shortcut-desc">Run workflow</span>
+          <div class="flux-shortcut-keys">
+            <span class="flux-key">Cmd+Shift+W</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- All Feature Scripts -->
+  <script src="src/renderer/command-palette.js"></script>
+  <script src="src/renderer/command-intelligence.js"></script>
+  <script src="src/renderer/command-confirm-dialog.js"></script>
+  <script src="src/renderer/workflow-engine.js"></script>
+  <script src="src/renderer/workflow-ui.js"></script>
+  <script src="src/renderer/workflow-manager.js"></script>
+  
+  <script>
+    // Initialize Flux Application
+    class FluxApp {
+      constructor() {
+        this.commandHistory = [];
+        this.initializeFeatures();
+        this.setupKeyboardShortcuts();
+        this.loadSampleData();
+      }
+      
+      initializeFeatures() {
+        // Initialize workflow system
+        this.workflowEngine = new WorkflowEngine();
+        this.workflowUI = new WorkflowUI(this.workflowEngine);
+        this.workflowManager = new WorkflowManager(this.workflowEngine);
+        
+        // Load built-in workflows
+        this.loadBuiltInWorkflows();
+        
+        // Initialize command intelligence
+        this.commandIntelligence = new CommandIntelligence();
+        
+        console.log('✅ Flux initialized');
+      }
+      
+      setupKeyboardShortcuts() {
+        document.addEventListener('keydown', (e) => {
+          // Cmd/Ctrl + / for shortcuts
+          if ((e.metaKey || e.ctrlKey) && e.key === '/') {
+            e.preventDefault();
+            this.toggleShortcuts();
+          }
+        });
+      }
+      
+      loadBuiltInWorkflows() {
+        const workflows = [
+          {
+            name: "Git Commit & Push",
+            description: "Add, commit, and push changes to remote repository",
+            tags: ["git", "version-control"],
+            author: "Flux Team",
+            steps: [
+              { type: "command", name: "Check status", command: "git status --short" },
+              { type: "command", name: "Stage changes", command: "git add ." },
+              { type: "input", name: "Get message", prompt: "Commit message:", variable: "message", required: true },
+              { type: "command", name: "Commit", command: "git commit -m '{{message}}'" },
+              { type: "confirm", name: "Push?", message: "Push to origin?", default: true },
+              { type: "command", name: "Push", command: "git push origin main" },
+              { type: "success", message: "✅ Pushed successfully!" }
+            ]
+          },
+          {
+            name: "Deploy to Production",
+            description: "Build, test, and deploy to production",
+            tags: ["deploy", "production", "ci/cd"],
+            author: "Flux Team",
+            variables: [
+              { name: "environment", description: "Target", type: "select", options: ["staging", "production"], default: "production" }
+            ],
+            steps: [
+              { type: "command", name: "Install", command: "npm install" },
+              { type: "command", name: "Test", command: "npm test" },
+              { type: "command", name: "Build", command: "npm run build" },
+              { type: "confirm", name: "Confirm", message: "Deploy to {{environment}}?", default: false },
+              { type: "command", name: "Deploy", command: "npm run deploy:{{environment}}" },
+              { type: "success", message: "🎉 Deployed to {{environment}}!" }
+            ]
+          }
+        ];
+        
+        workflows.forEach(w => this.workflowEngine.registerWorkflow(w));
+        this.workflowManager.loadFromLocalStorage();
+      }
+      
+      loadSampleData() {
+        // Sample command history
+        this.commandHistory = [
+          { command: 'npm test', timestamp: Date.now() - 300000 },
+          { command: 'git status', timestamp: Date.now() - 600000 },
+          { command: 'npm run build', timestamp: Date.now() - 900000 }
+        ];
+      }
+      
+      toggleShortcuts() {
+        const overlay = document.getElementById('shortcuts-overlay');
+        overlay.classList.toggle('active');
+      }
+      
+      addToHistory(command, result) {
+        this.commandHistory.unshift({ command, result, timestamp: Date.now() });
+        this.updateOutput();
+      }
+      
+      updateOutput() {
+        const outputList = document.getElementById('flux-output-list');
+        const output = document.getElementById('flux-output');
+        
+        if (this.commandHistory.length > 0) {
+          output.classList.add('active');
+          outputList.innerHTML = this.commandHistory.map(item => `
+            <div class="flux-output-item">
+              <div class="flux-output-command">$ ${item.command}</div>
+              ${item.result ? `<div class="flux-output-result">${item.result}</div>` : ''}
+            </div>
+          `).join('');
+        }
+      }
+    }
+    
+    // Initialize app
+    const fluxApp = new FluxApp();
+    
+    // Global functions for UI
+    function openCommandPalette() {
+      // Command palette will be added in later integration
+      alert('Command Palette - Press Cmd+K');
+    }
+    
+    function showIntelligenceDemo() {
+      alert('Command Intelligence - Automatically detects risky commands');
+    }
+    
+    function openWorkflowManager() {
+      fluxApp.workflowManager.showManager();
+    }
+    
+    function showShortcuts() {
+      fluxApp.toggleShortcuts();
+    }
+    
+    function hideShortcuts() {
+      document.getElementById('shortcuts-overlay').classList.remove('active');
+    }
+    
+    function startTour() {
+      alert('Quick Tour: Coming soon!');
+    }
+    
+    function showDocs() {
+      window.open('WORKFLOW_USER_GUIDE.md', '_blank');
+    }
+    
+    function runTests() {
+      window.open('test-workflow-system.html', '_blank');
+    }
+    
+    function clearOutput() {
+      fluxApp.commandHistory = [];
+      fluxApp.updateOutput();
+      document.getElementById('flux-output').classList.remove('active');
+    }
+    
+    // Listen for workflow runs
+    window.addEventListener('run-workflow', (e) => {
+      fluxApp.workflowUI.runWorkflow(e.detail.name);
+    });
+    
+    console.log('🚀 Flux App Ready!');
+    console.log('Press Cmd+/ for keyboard shortcuts');
+  </script>
+</body>
+</html>
