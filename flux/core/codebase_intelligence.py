@@ -10,9 +10,11 @@ This module builds a semantic graph of the codebase, understanding:
 
 import ast
 import os
+import json
+import hashlib
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from collections import defaultdict
 import re
 
@@ -46,8 +48,12 @@ class FileNode:
 class CodebaseGraph:
     """Builds and maintains a semantic graph of the codebase."""
     
-    def __init__(self, root_path: Path):
+    CACHE_VERSION = "1.0"
+    
+    def __init__(self, root_path: Path, cache_dir: Optional[Path] = None):
         self.root_path = root_path
+        self.cache_dir = cache_dir or (root_path / ".flux" / "cache")
+        self.cache_file = self.cache_dir / "codebase_graph.json"
         self.files: Dict[str, FileNode] = {}
         self.entities: Dict[str, CodeEntity] = {}
         self.import_graph: Dict[str, Set[str]] = defaultdict(set)
@@ -59,8 +65,18 @@ class CodebaseGraph:
             '.tsx': self._parse_javascript_file,
         }
     
-    def build_graph(self, max_files: int = 1000) -> None:
-        """Build the complete codebase graph."""
+    def build_graph(self, max_files: int = 1000, use_cache: bool = True) -> None:
+        """Build the complete codebase graph.
+        
+        Args:
+            max_files: Maximum number of files to parse
+            use_cache: Whether to use cached graph if valid
+        """
+        # Try to load from cache if enabled
+        if use_cache and self._load_from_cache():
+            print(f"✅ Loaded cached graph: {len(self.files)} files, {len(self.entities)} entities")
+            return
+        
         print(f"🔍 Building codebase graph from {self.root_path}...")
         
         # Find all code files
@@ -77,6 +93,9 @@ class CodebaseGraph:
         self._build_dependency_graph()
         
         print(f"✅ Graph built: {len(self.files)} files, {len(self.entities)} entities")
+        
+        # Save to cache
+        self._save_to_cache()
     
     def find_related_files(self, query: str, current_file: Optional[str] = None, limit: int = 10) -> List[Tuple[str, float]]:
         """Find files related to a query or current file.
@@ -402,8 +421,181 @@ class CodebaseGraph:
         return None
 
 
-def create_codebase_graph(root_path: Path) -> CodebaseGraph:
-    """Create and build a codebase graph."""
+    def _compute_file_hash(self, file_path: str) -> str:
+        """Compute hash of file contents for cache invalidation."""
+        try:
+            with open(file_path, 'rb') as f:
+                return hashlib.md5(f.read()).hexdigest()
+        except:
+            return ""
+    
+    def _compute_tree_hash(self, file_paths: List[str]) -> str:
+        """Compute combined hash of all files for cache validation."""
+        hasher = hashlib.md5()
+        
+        # Sort for consistency
+        for file_path in sorted(file_paths):
+            hasher.update(file_path.encode())
+            file_hash = self._compute_file_hash(file_path)
+            hasher.update(file_hash.encode())
+        
+        return hasher.hexdigest()
+    
+    def _save_to_cache(self) -> None:
+        """Save the codebase graph to cache."""
+        try:
+            # Create cache directory if it doesn't exist
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Compute file tree hash
+            file_paths = list(self.files.keys())
+            tree_hash = self._compute_tree_hash(file_paths)
+            
+            # Prepare data for serialization
+            cache_data = {
+                'version': self.CACHE_VERSION,
+                'tree_hash': tree_hash,
+                'root_path': str(self.root_path),
+                'files': {},
+                'entities': {}
+            }
+            
+            # Serialize files (convert to dict)
+            for path, file_node in self.files.items():
+                cache_data['files'][path] = {
+                    'path': file_node.path,
+                    'language': file_node.language,
+                    'imports': file_node.imports,
+                    'exports': file_node.exports,
+                    'dependencies': file_node.dependencies,
+                    'dependents': file_node.dependents,
+                    'last_modified': file_node.last_modified,
+                    'entities': [
+                        {
+                            'name': e.name,
+                            'type': e.type,
+                            'file_path': e.file_path,
+                            'line_number': e.line_number,
+                            'defined_in': e.defined_in,
+                            'docstring': e.docstring,
+                            'references': e.references,
+                            'dependencies': e.dependencies
+                        }
+                        for e in file_node.entities
+                    ]
+                }
+            
+            # Serialize entities
+            for name, entity in self.entities.items():
+                cache_data['entities'][name] = {
+                    'name': entity.name,
+                    'type': entity.type,
+                    'file_path': entity.file_path,
+                    'line_number': entity.line_number,
+                    'defined_in': entity.defined_in,
+                    'docstring': entity.docstring,
+                    'references': entity.references,
+                    'dependencies': entity.dependencies
+                }
+            
+            # Write to cache file
+            with open(self.cache_file, 'w') as f:
+                json.dump(cache_data, f, indent=2)
+            
+            print(f"   💾 Cache saved to {self.cache_file}")
+        
+        except Exception as e:
+            print(f"   ⚠️ Warning: Could not save cache: {e}")
+    
+    def _load_from_cache(self) -> bool:
+        """Load the codebase graph from cache if valid.
+        
+        Returns True if cache was loaded successfully, False otherwise.
+        """
+        try:
+            # Check if cache file exists
+            if not self.cache_file.exists():
+                return False
+            
+            # Load cache data
+            with open(self.cache_file, 'r') as f:
+                cache_data = json.load(f)
+            
+            # Verify cache version
+            if cache_data.get('version') != self.CACHE_VERSION:
+                print("   ⚠️ Cache version mismatch, rebuilding...")
+                return False
+            
+            # Verify root path matches
+            if cache_data.get('root_path') != str(self.root_path):
+                return False
+            
+            # Find current code files
+            current_files = self._find_code_files(1000)
+            current_hash = self._compute_tree_hash(current_files)
+            
+            # Verify file tree hasn't changed
+            if cache_data.get('tree_hash') != current_hash:
+                print("   ⚠️ Codebase changed, rebuilding graph...")
+                return False
+            
+            # Deserialize files
+            for path, file_data in cache_data['files'].items():
+                entities = [
+                    CodeEntity(
+                        name=e['name'],
+                        type=e['type'],
+                        file_path=e['file_path'],
+                        line_number=e['line_number'],
+                        defined_in=e.get('defined_in'),
+                        docstring=e.get('docstring'),
+                        references=e.get('references', []),
+                        dependencies=e.get('dependencies', [])
+                    )
+                    for e in file_data.get('entities', [])
+                ]
+                
+                self.files[path] = FileNode(
+                    path=file_data['path'],
+                    language=file_data['language'],
+                    imports=file_data.get('imports', []),
+                    exports=file_data.get('exports', []),
+                    dependencies=file_data.get('dependencies', []),
+                    dependents=file_data.get('dependents', []),
+                    entities=entities,
+                    last_modified=file_data.get('last_modified')
+                )
+            
+            # Deserialize entities
+            for name, entity_data in cache_data.get('entities', {}).items():
+                self.entities[name] = CodeEntity(
+                    name=entity_data['name'],
+                    type=entity_data['type'],
+                    file_path=entity_data['file_path'],
+                    line_number=entity_data['line_number'],
+                    defined_in=entity_data.get('defined_in'),
+                    docstring=entity_data.get('docstring'),
+                    references=entity_data.get('references', []),
+                    dependencies=entity_data.get('dependencies', [])
+                )
+            
+            # Rebuild import graph
+            self._build_dependency_graph()
+            
+            return True
+        
+        except Exception as e:
+            print(f"   ⚠️ Could not load cache: {e}")
+            return False
+
+
+def create_codebase_graph(root_path: Path, use_cache: bool = True) -> CodebaseGraph:
+    """Create and build a codebase graph.
+    
+    Args:
+        root_path: Root directory of the codebase
+        use_cache: Whether to use cached graph if available
+    """
     graph = CodebaseGraph(root_path)
-    graph.build_graph()
+    graph.build_graph(use_cache=use_cache)
     return graph

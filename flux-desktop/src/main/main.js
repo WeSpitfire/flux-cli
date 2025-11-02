@@ -3,8 +3,16 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-// Map of tabId -> flux process
+// Map of tabId -> flux process data
 const fluxProcesses = new Map();
+
+// Map of tabId -> retry state for auto-restart
+const retryState = new Map();
+
+// Auto-restart configuration
+const MAX_RETRIES = 5;
+const INITIAL_BACKOFF_MS = 1000;
+const MAX_BACKOFF_MS = 30000;
 
 function createWindow () {
   const win = new BrowserWindow({
@@ -13,12 +21,69 @@ function createWindow () {
     backgroundColor: '#1a1b26',
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
-      nodeIntegration: true,
-      contextIsolation: false
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true
     }
   });
 
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+
+  // Helper to get or initialize retry state for a tab
+  function getRetryState(tabId) {
+    if (!retryState.has(tabId)) {
+      retryState.set(tabId, {
+        attempts: 0,
+        lastAttempt: 0,
+        backoffMs: INITIAL_BACKOFF_MS,
+        manualStop: false
+      });
+    }
+    return retryState.get(tabId);
+  }
+
+  // Reset retry state on successful start
+  function resetRetryState(tabId) {
+    const state = getRetryState(tabId);
+    state.attempts = 0;
+    state.backoffMs = INITIAL_BACKOFF_MS;
+  }
+
+  // Schedule a restart with exponential backoff
+  function scheduleRestart(tabId, cwd, errorMsg) {
+    const state = getRetryState(tabId);
+    
+    // Don't auto-restart if manually stopped or max retries exceeded
+    if (state.manualStop || state.attempts >= MAX_RETRIES) {
+      if (state.attempts >= MAX_RETRIES) {
+        const finalMsg = `\n\n❌ Auto-restart failed after ${MAX_RETRIES} attempts.\nPlease check the Flux CLI installation or restart the tab manually.`;
+        if (!win.isDestroyed()) {
+          win.webContents.send('flux-error', { tabId, data: errorMsg + finalMsg });
+        }
+      }
+      return;
+    }
+    
+    state.attempts++;
+    state.lastAttempt = Date.now();
+    
+    const waitTime = Math.min(state.backoffMs, MAX_BACKOFF_MS);
+    console.log(`[Tab ${tabId}] Scheduling restart attempt ${state.attempts}/${MAX_RETRIES} in ${waitTime}ms`);
+    
+    // Notify user of auto-restart
+    if (!win.isDestroyed()) {
+      const restartMsg = `\n⚠️  Process crashed. Auto-restarting in ${waitTime/1000}s (attempt ${state.attempts}/${MAX_RETRIES})...`;
+      win.webContents.send('flux-error', { tabId, data: errorMsg + restartMsg });
+    }
+    
+    setTimeout(() => {
+      console.log(`[Tab ${tabId}] Attempting restart ${state.attempts}/${MAX_RETRIES}`);
+      spawnFluxForTab(tabId, cwd);
+    }, waitTime);
+    
+    // Exponential backoff
+    state.backoffMs = Math.min(state.backoffMs * 2, MAX_BACKOFF_MS);
+  }
 
   // Helper to spawn a new Flux process for a tab
   function spawnFluxForTab(tabId, cwd) {
@@ -75,22 +140,35 @@ function createWindow () {
     fluxProcess.on('error', (error) => {
       const errorMsg = `Process error: ${error.message}\n\nTroubleshooting:\n- Ensure Flux CLI is installed: pip install -e .\n- Check that 'flux' command is in PATH\n- Try running 'flux' in terminal to verify`;
       console.error(`[Flux ${tabId} process error]:`, error);
-      if (!win.isDestroyed()) {
-        win.webContents.send('flux-error', { tabId, data: errorMsg });
-      }
+      
+      // Schedule auto-restart
+      scheduleRestart(tabId, workingDir, errorMsg);
     });
 
     fluxProcess.on('close', (code) => {
       console.log(`[Flux ${tabId}] Process closed with code ${code}`);
+      const state = getRetryState(tabId);
+      
       fluxProcesses.delete(tabId);
       
-      if (code !== 0 && !win.isDestroyed()) {
+      // If process crashed (non-zero exit code) and wasn't manually stopped
+      if (code !== 0 && !state.manualStop) {
         const errorMsg = `Flux process exited with code ${code}`;
-        win.webContents.send('flux-error', { tabId, data: errorMsg });
+        console.error(`[Flux ${tabId}] Unexpected exit:`, errorMsg);
+        
+        // Schedule auto-restart
+        scheduleRestart(tabId, workingDir, errorMsg);
+      } else if (code === 0) {
+        // Reset retry state on clean exit
+        resetRetryState(tabId);
       }
     });
 
     fluxProcesses.set(tabId, { process: fluxProcess, cwd: workingDir });
+    
+    // Process started successfully, reset retry state
+    resetRetryState(tabId);
+    
     return fluxProcess;
   }
 
@@ -136,8 +214,14 @@ function createWindow () {
     const fluxData = fluxProcesses.get(tabId);
     if (fluxData && fluxData.process && !fluxData.process.killed) {
       console.log(`Destroying flux process for tab ${tabId}`);
+      
+      // Mark as manual stop to prevent auto-restart
+      const state = getRetryState(tabId);
+      state.manualStop = true;
+      
       fluxData.process.kill();
       fluxProcesses.delete(tabId);
+      retryState.delete(tabId);
     }
   });
 

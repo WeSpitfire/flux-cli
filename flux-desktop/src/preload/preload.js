@@ -1,7 +1,8 @@
-const { ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
-// Expose Flux API to renderer
-window.flux = {
+// Expose protected methods that allow the renderer process to use
+// the ipcRenderer without exposing the entire object
+contextBridge.exposeInMainWorld('flux', {
   createProcess: (tabId, cwd) => {
     ipcRenderer.send('flux-create-process', { tabId, cwd });
   },
@@ -37,19 +38,19 @@ window.flux = {
       callback(tabId);
     });
   }
-};
+});
 
 // Expose codebase API
-window.codebase = {
+contextBridge.exposeInMainWorld('codebase', {
   getGraph: () => ipcRenderer.invoke('get-codebase-stats')
-};
+});
 
 // Expose file system API
-window.fileSystem = {
+contextBridge.exposeInMainWorld('fileSystem', {
   readDir: (dirPath) => ipcRenderer.invoke('read-dir', dirPath),
   isDirectory: (filePath) => ipcRenderer.invoke('is-directory', filePath),
   joinPath: (...paths) => ipcRenderer.invoke('join-path', ...paths),
   getCwd: () => ipcRenderer.invoke('get-cwd'),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
   searchFiles: (directory, query, maxResults) => ipcRenderer.invoke('search-files', { directory, query, maxResults })
-};
+});
