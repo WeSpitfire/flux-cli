@@ -51,7 +51,7 @@ class LLMClient:
         # Apply context pruning if enabled
         messages_to_send = self.conversation_history
         if self.enable_context_pruning and len(self.conversation_history) > 4:
-            pruned_history = self.context_manager.prune_for_haiku(
+            pruned_history = self.context_manager.prune_history(
                 self.conversation_history,
                 self.current_file_context
             )

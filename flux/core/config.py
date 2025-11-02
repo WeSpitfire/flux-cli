@@ -22,6 +22,7 @@ class Config:
     # LLM Settings
     model: str = field(default_factory=lambda: os.getenv("FLUX_MODEL", "claude-3-5-sonnet-20240620"))
     max_tokens: int = field(default_factory=lambda: int(os.getenv("FLUX_MAX_TOKENS", "4096")))
+    max_history: int = 8000  # Default value, can be overridden by CLI argument
     temperature: float = field(default_factory=lambda: float(os.getenv("FLUX_TEMPERATURE", "0.0")))
     
     # Paths

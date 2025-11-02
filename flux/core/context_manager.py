@@ -1,4 +1,8 @@
-"""Context management optimized for Claude Haiku's token limits."""
+"""Context management for any LLM provider's token limits.
+
+Provides intelligent conversation history pruning that works with
+OpenAI, Anthropic, and any other LLM provider.
+"""
 
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
@@ -26,12 +30,14 @@ class ContextManager:
         self.max_context_tokens = max_context_tokens
         self.token_estimate_ratio = 4  # ~4 chars per token
     
-    def prune_for_haiku(
+    def prune_history(
         self,
         history: List[Dict[str, Any]],
         current_file_context: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Prune conversation history to fit Haiku's limits.
+        """Prune conversation history to fit within token budget.
+        
+        Works with ANY LLM provider (OpenAI, Anthropic, etc.).
         
         Strategy:
         - Always keep: Most recent messages (last 3 turns)

@@ -22,6 +22,7 @@ from flux.core.impact_analyzer import ImpactAnalyzer
 from flux.core.suggestions import SuggestionsEngine, Priority
 from flux.core.workspace import Workspace, TaskPriority, TaskStatus
 from flux.core.failure_tracker import FailureTracker
+from flux.core.background_processor import SmartBackgroundProcessor
 from flux.llm.provider_factory import create_provider
 from flux.llm.prompts import SYSTEM_PROMPT
 from flux.tools.base import ToolRegistry
@@ -32,6 +33,7 @@ from flux.tools.filesystem import ListFilesTool, FindFilesTool
 from flux.tools.ast_edit import ASTEditTool
 from flux.tools.validation import ValidationTool
 from flux.tools.preview import PreviewEditTool
+from flux.tools.line_insert import InsertAtLineTool
 
 
 class CLI:
@@ -80,11 +82,15 @@ class CLI:
         # Initialize failure tracker
         self.failure_tracker = FailureTracker()
         
+        # Initialize smart background processor
+        self.bg_processor = SmartBackgroundProcessor(cwd)
+        
         # Initialize tool registry
         self.tools = ToolRegistry()
-        self.tools.register(ReadFilesTool(cwd, workflow_enforcer=self.workflow))
+        self.tools.register(ReadFilesTool(cwd, workflow_enforcer=self.workflow, background_processor=self.bg_processor))
         self.tools.register(WriteFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
         self.tools.register(EditFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
+        self.tools.register(InsertAtLineTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
         self.tools.register(PreviewEditTool(cwd))
         self.tools.register(RunCommandTool(cwd))
         self.tools.register(GrepSearchTool(cwd, workflow_enforcer=self.workflow))
@@ -351,6 +357,19 @@ class CLI:
                 if query.lower() == '/stats':
                     await self.show_project_stats()
                     continue
+                
+                if query.lower() == '/performance' or query.lower() == '/perf':
+                    metrics = self.bg_processor.get_metrics()
+                    summary = (
+                        f"Files preloaded: [cyan]{metrics.files_preloaded}[/cyan]\n"
+                        f"Cache hits: [green]{metrics.cache_hits}[/green]\n"
+                        f"Cache misses: [yellow]{metrics.cache_misses}[/yellow]\n"
+                        f"Hit rate: [cyan]{metrics.hit_rate():.1%}[/cyan]\n"
+                        f"Time saved: [green]{metrics.time_saved_ms}ms[/green]\n"
+                        f"Predictions: {metrics.predictions_made}"
+                    )
+                    self.console.print(Panel(summary, title="⚡ Background Processing", border_style="blue"))
+                    continue
 
                 if query.lower() == '/help':
                     self.console.print(
@@ -383,6 +402,7 @@ class CLI:
                         "  /tasks - List all tasks\n"
                         "  /summary - Show work summary for today\n"
                         "  /stats - Show project statistics\n"
+                        "  /performance (/perf) - Show background processing stats\n"
                         "\n[bold]General:[/bold]\n"
                         "  /help - Show this help\n"
                         "  /model - Show current provider and model\n"
@@ -436,6 +456,13 @@ class CLI:
                 content = event["content"]
                 response_text += content
                 self.console.print(content, end="")
+                
+                # SMART BACKGROUND PROCESSING:
+                # While user reads the streaming text, analyze it and
+                # pre-load files that are likely to be needed next
+                tasks = self.bg_processor.analyze_chunk(content)
+                if tasks:
+                    await self.bg_processor.schedule_and_run(tasks)
             
             elif event["type"] == "tool_use":
                 tool_uses.append(event)

@@ -13,10 +13,11 @@ from rich.console import Console
 class ReadFilesTool(Tool):
     """Tool for reading file contents."""
     
-    def __init__(self, cwd: Path, workflow_enforcer=None):
+    def __init__(self, cwd: Path, workflow_enforcer=None, background_processor=None):
         """Initialize with current working directory."""
         self.cwd = cwd
         self.workflow = workflow_enforcer
+        self.bg_processor = background_processor
     
     @property
     def name(self) -> str:
@@ -67,10 +68,22 @@ ON ERROR: Use list_files or find_files to discover correct paths."""
                     results[path_str] = {"error": "Path is not a file"}
                     continue
                 
-                # Check cache first to avoid re-reading same file in workflow
+                # Check background processor cache first (from smart preloading)
                 cached_content = None
-                if self.workflow:
+                cache_source = None
+                
+                if self.bg_processor:
+                    cached_content = self.bg_processor.get_cached_file(path)
+                    if cached_content:
+                        cache_source = 'background'
+                        # Record time saved (typical file read is ~5-10ms)
+                        self.bg_processor.record_time_saved(7)
+                
+                # Fall back to workflow cache
+                if cached_content is None and self.workflow:
                     cached_content = self.workflow.get_cached_file(path)
+                    if cached_content:
+                        cache_source = 'workflow'
                 
                 if cached_content is not None:
                     # Use cached content

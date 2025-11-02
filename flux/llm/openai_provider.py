@@ -5,6 +5,7 @@ from typing import List, Dict, Any, AsyncIterator, Optional
 from openai import AsyncOpenAI
 
 from flux.core.config import Config
+from flux.core.context_manager import ContextManager
 from flux.llm.base_provider import BaseLLMProvider
 
 
@@ -31,6 +32,9 @@ class OpenAIProvider(BaseLLMProvider):
         self.client = AsyncOpenAI(api_key=api_key)
         # OpenAI uses different conversation format
         self.messages: List[Dict[str, Any]] = []
+        # Context manager for pruning history (configurable via --max-history)
+        max_history = getattr(config, 'max_history', 8000)
+        self.context_manager = ContextManager(max_context_tokens=max_history)
     
     async def send_message(
         self,
@@ -52,8 +56,11 @@ class OpenAIProvider(BaseLLMProvider):
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         
-        # Add conversation history
-        messages.extend(self.messages)
+        # Prune conversation history to stay within token limits
+        pruned_messages = self.context_manager.prune_history(self.messages)
+        
+        # Add pruned conversation history
+        messages.extend(pruned_messages)
         
         # Add current user message
         messages.append({"role": "user", "content": message})

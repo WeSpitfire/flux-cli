@@ -72,6 +72,12 @@ def main():
         help="Auto-approve all changes without prompting"
     )
     parser.add_argument(
+        "--max-history",
+        type=int,
+        default=8000,
+        help="Maximum number of tokens to keep in conversation history (default: 8000)"
+    )
+    parser.add_argument(
         "--no-approval",
         action="store_true",
         help="Disable approval prompts (same as --yes)"
@@ -91,6 +97,9 @@ def main():
     
     # Initialize configuration
     config = Config()
+    
+    # Set max history from CLI argument
+    config.max_history = args.max_history
     
     # Set auto-approve mode if flags are present
     if args.yes or args.no_approval:

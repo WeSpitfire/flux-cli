@@ -23,7 +23,9 @@ class AnthropicProvider(BaseLLMProvider):
         super().__init__(config)
         self.client = AsyncAnthropic(api_key=config.anthropic_api_key)
         self.enable_context_pruning = enable_context_pruning
-        self.context_manager = ContextManager(max_context_tokens=config.max_context_tokens)
+        # Use max_history if available, fall back to max_context_tokens for backward compatibility
+        max_history = getattr(config, 'max_history', config.max_context_tokens)
+        self.context_manager = ContextManager(max_context_tokens=max_history)
         self.current_file_context: Optional[str] = None
         self.pruning_stats: List[Dict[str, Any]] = []
     
@@ -49,7 +51,7 @@ class AnthropicProvider(BaseLLMProvider):
         # Apply context pruning if enabled
         messages_to_send = self.conversation_history
         if self.enable_context_pruning and len(self.conversation_history) > 4:
-            pruned_history = self.context_manager.prune_for_haiku(
+            pruned_history = self.context_manager.prune_history(
                 self.conversation_history,
                 self.current_file_context
             )
