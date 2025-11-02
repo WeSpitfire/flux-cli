@@ -1,0 +1,52 @@
+{
+  "name": "Database Migration",
+  "description": "Run database migrations and seed data",
+  "version": "1.0.0",
+  "author": "Flux Team",
+  "tags": ["database", "migration", "seed"],
+  "icon": "🗄️",
+  
+  "steps": [
+    {
+      "type": "select",
+      "name": "Migration direction",
+      "prompt": "Run migrations up or down?",
+      "options": ["up", "down", "latest", "rollback"],
+      "variable": "direction",
+      "default": "up"
+    },
+    {
+      "type": "confirm",
+      "name": "Backup confirmation",
+      "message": "Have you backed up the database?",
+      "default": false
+    },
+    {
+      "type": "command",
+      "name": "Run migration",
+      "command": "npm run migrate:{{direction}}",
+      "continueOnError": false
+    },
+    {
+      "type": "confirm",
+      "name": "Seed database",
+      "message": "Seed the database with test data?",
+      "default": false
+    },
+    {
+      "type": "conditional",
+      "condition": "{{seedDatabase}} == true",
+      "steps": [
+        {
+          "type": "command",
+          "name": "Run seeds",
+          "command": "npm run db:seed"
+        }
+      ]
+    },
+    {
+      "type": "success",
+      "message": "✅ Database migration complete!"
+    }
+  ]
+}

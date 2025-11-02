@@ -1,0 +1,61 @@
+{
+  "name": "NPM Publish Package",
+  "description": "Version, test, build, and publish an npm package",
+  "version": "1.0.0",
+  "author": "Flux Team",
+  "tags": ["npm", "publish", "release"],
+  "icon": "📦",
+  
+  "steps": [
+    {
+      "type": "select",
+      "name": "Select version bump",
+      "prompt": "Version bump type:",
+      "options": ["patch", "minor", "major"],
+      "variable": "versionType",
+      "default": "patch"
+    },
+    {
+      "type": "command",
+      "name": "Bump version",
+      "command": "npm version {{versionType}}"
+    },
+    {
+      "type": "command",
+      "name": "Run tests",
+      "command": "npm test",
+      "continueOnError": false
+    },
+    {
+      "type": "command",
+      "name": "Run linter",
+      "command": "npm run lint",
+      "continueOnError": true
+    },
+    {
+      "type": "command",
+      "name": "Build package",
+      "command": "npm run build"
+    },
+    {
+      "type": "confirm",
+      "name": "Confirm publish",
+      "message": "Publish to npm registry? This cannot be undone.",
+      "default": false
+    },
+    {
+      "type": "command",
+      "name": "Publish to npm",
+      "command": "npm publish"
+    },
+    {
+      "type": "command",
+      "name": "Push version tag",
+      "command": "git push --follow-tags"
+    },
+    {
+      "type": "success",
+      "message": "🎉 Package published successfully!"
+    }
+  ]
+}

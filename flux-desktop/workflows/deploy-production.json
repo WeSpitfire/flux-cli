@@ -1,0 +1,57 @@
+{
+  "name": "Deploy to Production",
+  "description": "Build, test, and deploy application to production",
+  "version": "1.0.0",
+  "author": "Flux Team",
+  "tags": ["deploy", "production", "ci-cd"],
+  "icon": "🚀",
+  
+  "variables": [
+    {
+      "name": "environment",
+      "description": "Deployment environment",
+      "default": "production",
+      "type": "select",
+      "options": ["staging", "production"]
+    }
+  ],
+  
+  "steps": [
+    {
+      "type": "command",
+      "name": "Pull latest code",
+      "command": "git pull origin main"
+    },
+    {
+      "type": "command",
+      "name": "Install dependencies",
+      "command": "npm install"
+    },
+    {
+      "type": "command",
+      "name": "Run tests",
+      "command": "npm test",
+      "continueOnError": false
+    },
+    {
+      "type": "command",
+      "name": "Build application",
+      "command": "npm run build"
+    },
+    {
+      "type": "confirm",
+      "name": "Confirm deployment",
+      "message": "Deploy to {{environment}}? This will affect live users.",
+      "default": false
+    },
+    {
+      "type": "command",
+      "name": "Deploy",
+      "command": "npm run deploy:{{environment}}"
+    },
+    {
+      "type": "success",
+      "message": "🎉 Deployment to {{environment}} complete!"
+    }
+  ]
+}

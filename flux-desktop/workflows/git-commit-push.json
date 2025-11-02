@@ -1,0 +1,52 @@
+{
+  "name": "Git Commit & Push",
+  "description": "Stage changes, commit with message, and push to remote",
+  "version": "1.0.0",
+  "author": "Flux Team",
+  "tags": ["git", "version-control", "quick"],
+  "icon": "🔀",
+  
+  "variables": [
+    {
+      "name": "branch",
+      "description": "Branch to push to",
+      "default": "main",
+      "type": "string"
+    }
+  ],
+  
+  "steps": [
+    {
+      "type": "command",
+      "name": "Stage all changes",
+      "command": "git add ."
+    },
+    {
+      "type": "input",
+      "name": "Get commit message",
+      "prompt": "Enter commit message:",
+      "variable": "message",
+      "required": true
+    },
+    {
+      "type": "command",
+      "name": "Commit changes",
+      "command": "git commit -m '{{message}}'"
+    },
+    {
+      "type": "confirm",
+      "name": "Confirm push",
+      "message": "Push to {{branch}}?",
+      "default": true
+    },
+    {
+      "type": "command",
+      "name": "Push to remote",
+      "command": "git push origin {{branch}}"
+    },
+    {
+      "type": "success",
+      "message": "✅ Changes pushed to {{branch}}!"
+    }
+  ]
+}

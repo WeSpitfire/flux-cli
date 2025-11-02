@@ -1,0 +1,53 @@
+{
+  "name": "Docker Cleanup",
+  "description": "Remove unused Docker containers, images, and volumes to free up space",
+  "version": "1.0.0",
+  "author": "Flux Team",
+  "tags": ["docker", "cleanup", "maintenance"],
+  "icon": "🐳",
+  
+  "steps": [
+    {
+      "type": "command",
+      "name": "Show disk usage",
+      "command": "docker system df"
+    },
+    {
+      "type": "confirm",
+      "name": "Confirm cleanup",
+      "message": "Remove all stopped containers, unused networks, dangling images, and build cache?",
+      "default": true
+    },
+    {
+      "type": "command",
+      "name": "Prune system",
+      "command": "docker system prune -f"
+    },
+    {
+      "type": "confirm",
+      "name": "Remove volumes",
+      "message": "Also remove unused volumes? (May delete data)",
+      "default": false
+    },
+    {
+      "type": "conditional",
+      "condition": "{{removeVolumes}} == true",
+      "steps": [
+        {
+          "type": "command",
+          "name": "Prune volumes",
+          "command": "docker volume prune -f"
+        }
+      ]
+    },
+    {
+      "type": "command",
+      "name": "Show new disk usage",
+      "command": "docker system df"
+    },
+    {
+      "type": "success",
+      "message": "✅ Docker cleanup complete!"
+    }
+  ]
+}
