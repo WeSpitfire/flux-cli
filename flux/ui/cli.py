@@ -217,6 +217,49 @@ class CLI:
                     )
                     continue
                 
+                if query.lower() == '/help':
+                    help_text = (
+                        "[bold]Available Commands:[/bold]\n"
+                        "\n[bold cyan]General:[/bold cyan]\n"
+                        "  [green]/help[/green] - Show this help message\n"
+                        "  [green]/model[/green] - Show current provider and model\n"
+                        "  [green]/history[/green] - Show conversation history summary\n"
+                        "  [green]/clear[/green] - Clear conversation history\n"
+                        "\n[bold cyan]Memory Commands:[/bold cyan]\n"
+                        "  [green]/task <description>[/green] - Set current task\n"
+                        "  [green]/memory[/green] - Show project memory\n"
+                        "  [green]/checkpoint <msg>[/green] - Save a checkpoint\n"
+                        "  [green]/project[/green] - Show files created in this session\n"
+                        "\n[bold cyan]Undo Commands:[/bold cyan]\n"
+                        "  [green]/undo[/green] - Undo last file operation\n"
+                        "  [green]/undo-history[/green] - Show undo history\n"
+                        "\n[bold cyan]Git Commands:[/bold cyan]\n"
+                        "  [green]/diff[/green] - Show git diff of changes\n"
+                        "  [green]/commit[/green] - Smart commit with generated message\n"
+                        "  [green]/test[/green] - Run project tests\n"
+                        "\n[bold cyan]Workflow & Approval:[/bold cyan]\n"
+                        "  [green]/workflow[/green] - Show workflow status\n"
+                        "  [green]/approval[/green] - Show approval statistics\n"
+                        "\n[bold cyan]Codebase Intelligence:[/bold cyan]\n"
+                        "  [green]/index[/green] - Build semantic codebase graph\n"
+                        "  [green]/related <file|query>[/green] - Find related files\n"
+                        "  [green]/architecture[/green] - Show detected architecture\n"
+                        "  [green]/preview <file>[/green] - Preview impact of modifying a file\n"
+                        "  [green]/suggest[/green] - Get proactive AI suggestions\n"
+                        "\n[bold cyan]Workspace Intelligence:[/bold cyan]\n"
+                        "  [green]/session save <n>[/green] - Save current work session\n"
+                        "  [green]/session restore <id>[/green] - Restore a saved session\n"
+                        "  [green]/sessions[/green] - List all sessions\n"
+                        "  [green]/newtask <title>[/green] - Create a new task\n"
+                        "  [green]/tasks[/green] - List all tasks\n"
+                        "  [green]/summary[/green] - Show work summary for today\n"
+                        "  [green]/stats[/green] - Show project statistics\n"
+                        "  [green]/performance[/green] (or [green]/perf[/green]) - Show background processing stats"
+                    )
+                    self.console.print(Panel(help_text, title="📖 Help", border_style="blue"))
+                    continue
+
+                
                 if query.lower() == '/model':
                     self.console.print(
                         f"\n[bold]🤖 Current Model:[/bold]\n"
@@ -433,6 +476,17 @@ class CLI:
     
     async def process_query(self, query: str):
         """Process a user query."""
+        # Check token usage and warn if approaching limits
+        usage = self.llm.get_token_usage()
+        max_tokens = getattr(self.config, 'max_history', 8000)
+        usage_percent = (usage['total_tokens'] / max_tokens) * 100 if max_tokens > 0 else 0
+        
+        if usage_percent > 90:
+            self.console.print("[bold red]⚠ WARNING: Conversation is at 90%+ of token limit![/bold red]")
+            self.console.print("[yellow]Strongly recommend using /clear to avoid rate limit errors[/yellow]\n")
+        elif usage_percent > 80:
+            self.console.print(f"[yellow]⚠ Token usage at {usage_percent:.0f}% - consider using /clear soon[/yellow]\n")
+        
         # Start new workflow for each query
         self.workflow.start_workflow()
         
@@ -496,6 +550,44 @@ class CLI:
         # Execute tool
         try:
             result = await self.tools.execute(tool_name, **tool_input)
+            
+            # SMART RETRY: If edit_file fails with SEARCH_TEXT_NOT_FOUND, auto-read and provide context
+            if (tool_name == "edit_file" and 
+                isinstance(result, dict) and 
+                result.get("error", {}).get("code") == "SEARCH_TEXT_NOT_FOUND"):
+                
+                file_path = tool_input.get("path")
+                if file_path:
+                    self.console.print("[yellow]⚠ Search text not found. Reading file for context...[/yellow]")
+                    
+                    # Read the file to get current content
+                    try:
+                        read_result = await self.tools.execute("read_files", paths=[file_path])
+                        
+                        # Add helpful context to the error
+                        result["auto_recovery"] = {
+                            "action": "file_read_completed",
+                            "message": "The file has been read automatically. Please review the current content and retry your edit with the correct search text.",
+                            "file_content_available": True
+                        }
+                        
+                        # Show the file content to user
+                        self.console.print(Panel(
+                            f"[dim]Auto-read {file_path} to help with retry[/dim]",
+                            border_style="yellow"
+                        ))
+                        
+                        # Add the file read result to conversation immediately
+                        # This allows the LLM to see the current file state
+                        import uuid
+                        read_tool_id = str(uuid.uuid4())
+                        self.llm.add_tool_result(read_tool_id, read_result)
+                        
+                    except Exception as read_error:
+                        result["auto_recovery"] = {
+                            "action": "file_read_failed",
+                            "message": f"Failed to auto-read file: {str(read_error)}"
+                        }
             
             # Check if result is an error
             is_error = isinstance(result, dict) and "error" in result
@@ -611,42 +703,29 @@ class CLI:
         """Build system prompt with project context and intelligence."""
         prompt = SYSTEM_PROMPT
         
-        # Add project context if available
+        # Add minimal project context
         if self.project_info:
-            project_context = self.project_info.to_context_string()
-            prompt = f"{SYSTEM_PROMPT}\n\n# Current Project Context\n\n{project_context}"
+            # Condensed version - just essentials
+            prompt += f"\n\nProject: {self.project_info.name} ({self.project_info.project_type})"
+            if self.project_info.frameworks:
+                prompt += f" | {', '.join(self.project_info.frameworks[:2])}"
         
-        # Add project README for understanding
-        if self._project_readme:
-            readme_context = f"\n\n# Project Overview (from README)\n\n{self._project_readme}\n"
-            prompt = f"{prompt}{readme_context}"
+        # Add README only on first query, keep it brief
+        if self._project_readme and query and len(self.llm.conversation_history) < 2:
+            # Limit to 1000 chars to save tokens
+            readme_snippet = self._project_readme[:1000]
+            prompt += f"\n\nREADME: {readme_snippet}"
         
-        # Add codebase intelligence context
-        if self.codebase_graph:
-            architecture = self.codebase_graph.detect_architecture_patterns()
-            intel_context = f"\n\n# Codebase Intelligence\n\n"
-            intel_context += f"- Total Files: {len(self.codebase_graph.files)}\n"
-            intel_context += f"- Total Entities: {len(self.codebase_graph.entities)}\n"
-            intel_context += f"- Framework: {architecture.get('framework', 'Unknown')}\n"
-            intel_context += f"- Structure: {architecture.get('structure', 'Unknown')}\n"
-            intel_context += f"- Testing: {architecture.get('testing', 'None')}\n"
-            
-            # Add smart file suggestions if we have a query
-            if query:
-                suggested_files = self.get_intelligent_context(query)
-                if suggested_files:
-                    intel_context += f"\n## Relevant Files for this Query\n"
-                    intel_context += "Based on semantic analysis, you should consider these files:\n"
-                    for file in suggested_files:
-                        intel_context += f"  - {file}\n"
-                    intel_context += "\nIMPORTANT: Read these files COMPLETELY before making changes.\n"
-            
-            prompt = f"{prompt}{intel_context}"
+        # Minimal codebase intelligence - only when relevant
+        if self.codebase_graph and query:
+            # Only add file suggestions if they exist
+            suggested_files = self.get_intelligent_context(query)
+            if suggested_files:
+                prompt += f"\n\nRelevant files: {', '.join(suggested_files)}"
         
-        # Add memory context
-        memory_context = self.memory.to_context_string()
-        if memory_context and len(memory_context) > 20:  # has content beyond header
-            prompt = f"{prompt}\n\n{memory_context}"
+        # Only add memory context if there's an active task
+        if self.memory.state.current_task:
+            prompt += f"\n\nCurrent task: {self.memory.state.current_task}"
         
         return prompt
     
