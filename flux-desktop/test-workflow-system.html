@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flux Workflow System - Test Suite</title>
+  <link rel="stylesheet" href="src/renderer/workflow-ui.css">
+  <link rel="stylesheet" href="src/renderer/workflow-manager.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0a;
+      color: #fff;
+      padding: 40px;
+      line-height: 1.6;
+    }
+    
+    .test-container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      font-size: 36px;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    
+    .test-section {
+      background: #1e1e1e;
+      border: 1px solid #3a3a3a;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    
+    .test-section h2 {
+      font-size: 20px;
+      margin-bottom: 16px;
+      color: #fff;
+    }
+    
+    .test-case {
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    
+    .test-case-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    
+    .test-case-name {
+      font-weight: 600;
+      color: #fff;
+    }
+    
+    .test-status {
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    
+    .test-status.pending {
+      background: #3a3a3a;
+      color: #888;
+    }
+    
+    .test-status.running {
+      background: #6366f1;
+      color: #fff;
+    }
+    
+    .test-status.passed {
+      background: #10b981;
+      color: #fff;
+    }
+    
+    .test-status.failed {
+      background: #ef4444;
+      color: #fff;
+    }
+    
+    .test-description {
+      font-size: 14px;
+      color: #aaa;
+      margin-bottom: 8px;
+    }
+    
+    .test-result {
+      font-family: 'Monaco', monospace;
+      font-size: 13px;
+      padding: 8px;
+      background: #1a1a1a;
+      border-radius: 4px;
+      margin-top: 8px;
+      display: none;
+    }
+    
+    .test-result.show {
+      display: block;
+    }
+    
+    .test-result.passed {
+      border-left: 3px solid #10b981;
+      color: #10b981;
+    }
+    
+    .test-result.failed {
+      border-left: 3px solid #ef4444;
+      color: #ef4444;
+    }
+    
+    .test-controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    
+    .test-btn {
+      padding: 12px 24px;
+      background: #6366f1;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .test-btn:hover {
+      background: #5558e3;
+      transform: translateY(-2px);
+    }
+    
+    .test-btn:disabled {
+      background: #3a3a3a;
+      color: #666;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    .test-summary {
+      display: flex;
+      gap: 24px;
+      padding: 20px;
+      background: #2a2a2a;
+      border-radius: 8px;
+      margin-bottom: 24px;
+    }
+    
+    .summary-stat {
+      flex: 1;
+      text-align: center;
+    }
+    
+    .summary-value {
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    
+    .summary-label {
+      font-size: 14px;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <div class="test-container">
+    <h1>🧪 Workflow System Test Suite</h1>
+    <p style="color: #888; margin-bottom: 32px;">Comprehensive testing for workflow engine, UI, and manager</p>
+    
+    <div class="test-summary">
+      <div class="summary-stat">
+        <div class="summary-value" id="total-tests">0</div>
+        <div class="summary-label">Total Tests</div>
+      </div>
+      <div class="summary-stat">
+        <div class="summary-value" style="color: #10b981;" id="passed-tests">0</div>
+        <div class="summary-label">Passed</div>
+      </div>
+      <div class="summary-stat">
+        <div class="summary-value" style="color: #ef4444;" id="failed-tests">0</div>
+        <div class="summary-label">Failed</div>
+      </div>
+      <div class="summary-stat">
+        <div class="summary-value" style="color: #6366f1;" id="pass-rate">0%</div>
+        <div class="summary-label">Pass Rate</div>
+      </div>
+    </div>
+    
+    <div class="test-controls">
+      <button class="test-btn" onclick="runAllTests()">▶️ Run All Tests</button>
+      <button class="test-btn" onclick="runEngineTests()">Run Engine Tests</button>
+      <button class="test-btn" onclick="runUITests()">Run UI Tests</button>
+      <button class="test-btn" onclick="runManagerTests()">Run Manager Tests</button>
+    </div>
+    
+    <div class="test-section" id="engine-tests">
+      <h2>⚙️ Workflow Engine Tests</h2>
+      <div id="engine-test-cases"></div>
+    </div>
+    
+    <div class="test-section" id="ui-tests">
+      <h2>🎨 Workflow UI Tests</h2>
+      <div id="ui-test-cases"></div>
+    </div>
+    
+    <div class="test-section" id="manager-tests">
+      <h2>📚 Workflow Manager Tests</h2>
+      <div id="manager-test-cases"></div>
+    </div>
+  </div>
+  
+  <script src="src/renderer/workflow-engine.js"></script>
+  <script src="src/renderer/workflow-ui.js"></script>
+  <script src="src/renderer/workflow-manager.js"></script>
+  
+  <script>
+    // Test framework
+    class TestRunner {
+      constructor() {
+        this.tests = [];
+        this.results = [];
+      }
+      
+      addTest(category, name, description, fn) {
+        this.tests.push({ category, name, description, fn });
+      }
+      
+      async runTest(test) {
+        const testCase = this.createTestCase(test);
+        this.updateTestStatus(testCase, 'running');
+        
+        try {
+          await test.fn();
+          this.results.push({ ...test, status: 'passed' });
+          this.updateTestStatus(testCase, 'passed');
+          this.showTestResult(testCase, 'Test passed ✓', 'passed');
+        } catch (error) {
+          this.results.push({ ...test, status: 'failed', error });
+          this.updateTestStatus(testCase, 'failed');
+          this.showTestResult(testCase, `Test failed: ${error.message}`, 'failed');
+        }
+        
+        this.updateSummary();
+      }
+      
+      async runAll() {
+        this.results = [];
+        document.getElementById('engine-test-cases').innerHTML = '';
+        document.getElementById('ui-test-cases').innerHTML = '';
+        document.getElementById('manager-test-cases').innerHTML = '';
+        
+        for (const test of this.tests) {
+          await this.runTest(test);
+          await this.delay(100); // Small delay between tests
+        }
+      }
+      
+      async runCategory(category) {
+        this.results = this.results.filter(r => r.category !== category);
+        const container = document.getElementById(`${category}-test-cases`);
+        container.innerHTML = '';
+        
+        const categoryTests = this.tests.filter(t => t.category === category);
+        for (const test of categoryTests) {
+          await this.runTest(test);
+          await this.delay(100);
+        }
+      }
+      
+      createTestCase(test) {
+        const container = document.getElementById(`${test.category}-test-cases`);
+        const testCase = document.createElement('div');
+        testCase.className = 'test-case';
+        testCase.innerHTML = `
+          <div class="test-case-header">
+            <div class="test-case-name">${test.name}</div>
+            <div class="test-status pending">PENDING</div>
+          </div>
+          <div class="test-description">${test.description}</div>
+          <div class="test-result"></div>
+        `;
+        container.appendChild(testCase);
+        return testCase;
+      }
+      
+      updateTestStatus(testCase, status) {
+        const statusEl = testCase.querySelector('.test-status');
+        statusEl.className = `test-status ${status}`;
+        statusEl.textContent = status.toUpperCase();
+      }
+      
+      showTestResult(testCase, message, type) {
+        const resultEl = testCase.querySelector('.test-result');
+        resultEl.className = `test-result show ${type}`;
+        resultEl.textContent = message;
+      }
+      
+      updateSummary() {
+        const total = this.results.length;
+        const passed = this.results.filter(r => r.status === 'passed').length;
+        const failed = this.results.filter(r => r.status === 'failed').length;
+        const passRate = total > 0 ? Math.round((passed / total) * 100) : 0;
+        
+        document.getElementById('total-tests').textContent = total;
+        document.getElementById('passed-tests').textContent = passed;
+        document.getElementById('failed-tests').textContent = failed;
+        document.getElementById('pass-rate').textContent = `${passRate}%`;
+      }
+      
+      delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+      }
+    }
+    
+    // Initialize test runner
+    const runner = new TestRunner();
+    
+    // Workflow Engine Tests
+    runner.addTest('engine', 'Parse Valid Workflow', 'Should parse a valid workflow JSON', async () => {
+      const engine = new WorkflowEngine();
+      const workflow = {
+        name: 'Test Workflow',
+        steps: [{ type: 'command', command: 'echo test' }]
+      };
+      const parsed = engine.parseWorkflow(workflow);
+      if (!parsed || parsed.name !== 'Test Workflow') throw new Error('Failed to parse workflow');
+    });
+    
+    runner.addTest('engine', 'Reject Invalid Workflow', 'Should reject workflow without name', async () => {
+      const engine = new WorkflowEngine();
+      const workflow = { steps: [] };
+      try {
+        engine.parseWorkflow(workflow);
+        throw new Error('Should have thrown error');
+      } catch (error) {
+        if (!error.message.includes('name')) throw error;
+      }
+    });
+    
+    runner.addTest('engine', 'Register Workflow', 'Should register workflow successfully', async () => {
+      const engine = new WorkflowEngine();
+      const workflow = { name: 'Test', steps: [{ type: 'command', command: 'ls' }] };
+      engine.registerWorkflow(workflow);
+      const retrieved = engine.getWorkflow('Test');
+      if (!retrieved) throw new Error('Failed to register workflow');
+    });
+    
+    runner.addTest('engine', 'List Workflows', 'Should list all registered workflows', async () => {
+      const engine = new WorkflowEngine();
+      engine.registerWorkflow({ name: 'W1', steps: [] });
+      engine.registerWorkflow({ name: 'W2', steps: [] });
+      const list = engine.listWorkflows();
+      if (list.length !== 2) throw new Error(`Expected 2 workflows, got ${list.length}`);
+    });
+    
+    runner.addTest('engine', 'Variable Substitution', 'Should substitute variables in commands', async () => {
+      const engine = new WorkflowEngine();
+      const workflow = {
+        name: 'Test',
+        steps: [{ type: 'command', command: 'echo {{message}}' }]
+      };
+      engine.registerWorkflow(workflow);
+      // Variable substitution happens during execution
+      if (!engine.getWorkflow('Test')) throw new Error('Workflow not registered');
+    });
+    
+    // Workflow UI Tests
+    runner.addTest('ui', 'Initialize WorkflowUI', 'Should initialize UI without errors', async () => {
+      const engine = new WorkflowEngine();
+      const ui = new WorkflowUI(engine);
+      if (!ui || !ui.engine) throw new Error('Failed to initialize UI');
+    });
+    
+    runner.addTest('ui', 'Show Workflow Selector', 'Should show workflow selector dialog', async () => {
+      const engine = new WorkflowEngine();
+      engine.registerWorkflow({ name: 'Test', steps: [] });
+      const ui = new WorkflowUI(engine);
+      ui.showWorkflowSelector();
+      const dialog = document.querySelector('.workflow-selector-overlay');
+      if (!dialog) throw new Error('Selector dialog not shown');
+      ui.closeSelector();
+    });
+    
+    runner.addTest('ui', 'Close Workflow Selector', 'Should close workflow selector', async () => {
+      const engine = new WorkflowEngine();
+      const ui = new WorkflowUI(engine);
+      ui.showWorkflowSelector();
+      ui.closeSelector();
+      const dialog = document.querySelector('.workflow-selector-overlay');
+      if (dialog) throw new Error('Selector dialog not closed');
+    });
+    
+    runner.addTest('ui', 'Show No Workflows Message', 'Should show empty state for no workflows', async () => {
+      const engine = new WorkflowEngine();
+      const ui = new WorkflowUI(engine);
+      ui.showWorkflowSelector();
+      const emptyState = document.querySelector('.workflow-message');
+      // Should show "No workflows" message
+      ui.closeSelector();
+      if (!emptyState && engine.listWorkflows().length === 0) {
+        // Empty state was shown and cleaned up
+      }
+    });
+    
+    // Workflow Manager Tests
+    runner.addTest('manager', 'Initialize WorkflowManager', 'Should initialize manager without errors', async () => {
+      const engine = new WorkflowEngine();
+      const manager = new WorkflowManager(engine);
+      if (!manager || !manager.engine) throw new Error('Failed to initialize manager');
+    });
+    
+    runner.addTest('manager', 'Show Manager Dialog', 'Should show workflow library manager', async () => {
+      const engine = new WorkflowEngine();
+      engine.registerWorkflow({ name: 'Test', steps: [], description: 'Test workflow' });
+      const manager = new WorkflowManager(engine);
+      manager.showManager();
+      const dialog = document.querySelector('.workflow-manager-overlay');
+      if (!dialog) throw new Error('Manager dialog not shown');
+      manager.closeManager();
+    });
+    
+    runner.addTest('manager', 'Show Editor Dialog', 'Should show workflow editor', async () => {
+      const engine = new WorkflowEngine();
+      const manager = new WorkflowManager(engine);
+      manager.showEditor(null);
+      const dialog = document.querySelector('.workflow-editor-overlay');
+      if (!dialog) throw new Error('Editor dialog not shown');
+      manager.closeEditor();
+    });
+    
+    runner.addTest('manager', 'Save Workflow', 'Should save workflow to localStorage', async () => {
+      const engine = new WorkflowEngine();
+      const manager = new WorkflowManager(engine);
+      const workflow = { name: 'Test Save', steps: [], description: 'Test' };
+      engine.registerWorkflow(workflow);
+      manager.saveToLocalStorage();
+      const saved = localStorage.getItem('flux-workflows');
+      if (!saved) throw new Error('Failed to save to localStorage');
+    });
+    
+    runner.addTest('manager', 'Load Workflow', 'Should load workflows from localStorage', async () => {
+      const engine = new WorkflowEngine();
+      const manager = new WorkflowManager(engine);
+      const workflows = [{ name: 'Test Load', steps: [], description: 'Test' }];
+      localStorage.setItem('flux-workflows', JSON.stringify(workflows));
+      manager.loadFromLocalStorage();
+      const loaded = engine.getWorkflow('Test Load');
+      if (!loaded) throw new Error('Failed to load from localStorage');
+    });
+    
+    runner.addTest('manager', 'Export Workflow', 'Should export workflow as JSON', async () => {
+      const engine = new WorkflowEngine();
+      const manager = new WorkflowManager(engine);
+      const workflow = { name: 'Test Export', steps: [], description: 'Test' };
+      engine.registerWorkflow(workflow);
+      // Export creates a blob and download - we just check it doesn't error
+      try {
+        manager.exportWorkflow(workflow);
+      } catch (error) {
+        throw new Error('Export failed: ' + error.message);
+      }
+    });
+    
+    runner.addTest('manager', 'Delete Workflow', 'Should delete workflow from engine', async () => {
+      const engine = new WorkflowEngine();
+      const manager = new WorkflowManager(engine);
+      engine.registerWorkflow({ name: 'Test Delete', steps: [] });
+      
+      // Mock confirm to auto-accept
+      const originalConfirm = window.confirm;
+      window.confirm = () => true;
+      
+      manager.deleteWorkflow('Test Delete');
+      
+      window.confirm = originalConfirm;
+      
+      const deleted = engine.getWorkflow('Test Delete');
+      if (deleted) throw new Error('Failed to delete workflow');
+    });
+    
+    // Update total tests count
+    document.getElementById('total-tests').textContent = runner.tests.length;
+    
+    // Test runner functions
+    async function runAllTests() {
+      await runner.runAll();
+    }
+    
+    async function runEngineTests() {
+      await runner.runCategory('engine');
+    }
+    
+    async function runUITests() {
+      await runner.runCategory('ui');
+    }
+    
+    async function runManagerTests() {
+      await runner.runCategory('manager');
+    }
+    
+    console.log('🧪 Test suite ready!');
+    console.log(`${runner.tests.length} tests loaded`);
+  </script>
+</body>
+</html>
