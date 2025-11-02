@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flux Workflow UI Demo</title>
+  <link rel="stylesheet" href="src/renderer/workflow-ui.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #0a0a0a;
+      color: #fff;
+      padding: 40px;
+      line-height: 1.6;
+    }
+    
+    .demo-container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      font-size: 36px;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .demo-subtitle {
+      font-size: 18px;
+      color: #888;
+      margin-bottom: 40px;
+    }
+    
+    .demo-section {
+      background: #1e1e1e;
+      border: 1px solid #3a3a3a;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    
+    .demo-section h2 {
+      font-size: 20px;
+      margin-bottom: 16px;
+      color: #fff;
+    }
+    
+    .demo-section p {
+      color: #aaa;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+    
+    .demo-buttons {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    
+    .demo-btn {
+      padding: 12px 24px;
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .demo-btn:hover {
+      background: #323232;
+      border-color: #6366f1;
+      transform: translateY(-2px);
+    }
+    
+    .demo-btn-primary {
+      background: #6366f1;
+      border-color: #6366f1;
+    }
+    
+    .demo-btn-primary:hover {
+      background: #5558e3;
+      border-color: #5558e3;
+    }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-top: 24px;
+    }
+    
+    .stat-card {
+      background: #2a2a2a;
+      padding: 20px;
+      border-radius: 8px;
+      border: 1px solid #3a3a3a;
+    }
+    
+    .stat-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: #6366f1;
+      margin-bottom: 8px;
+    }
+    
+    .stat-label {
+      font-size: 14px;
+      color: #888;
+    }
+    
+    code {
+      background: #2a2a2a;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 13px;
+      color: #6366f1;
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-container">
+    <h1>🚀 Flux Workflow UI</h1>
+    <p class="demo-subtitle">Day 13: Workflow UI Components Demo</p>
+    
+    <div class="demo-section">
+      <h2>📋 What's Included</h2>
+      <p>This demo showcases the complete Workflow UI system with:</p>
+      <ul style="color: #aaa; padding-left: 24px; margin-bottom: 16px;">
+        <li>Workflow selector dialog with search & keyboard navigation</li>
+        <li>Variable input forms for parameterized workflows</li>
+        <li>Real-time progress tracking with visual indicators</li>
+        <li>Cancel/pause/resume controls</li>
+        <li>Success/error/cancelled states</li>
+      </ul>
+    </div>
+    
+    <div class="demo-section">
+      <h2>🎮 Try It Out</h2>
+      <p>Click the buttons below to test different UI components:</p>
+      <div class="demo-buttons">
+        <button class="demo-btn demo-btn-primary" onclick="openWorkflowSelector()">
+          🚀 Open Workflow Selector
+        </button>
+        <button class="demo-btn" onclick="runGitWorkflow()">
+          📦 Run Git Commit Workflow
+        </button>
+        <button class="demo-btn" onclick="runDeployWorkflow()">
+          🚀 Run Deploy Workflow
+        </button>
+        <button class="demo-btn" onclick="runDockerWorkflow()">
+          🐳 Run Docker Cleanup
+        </button>
+        <button class="demo-btn" onclick="runNpmWorkflow()">
+          📦 Run NPM Publish
+        </button>
+      </div>
+    </div>
+    
+    <div class="demo-section">
+      <h2>⌨️ Keyboard Shortcuts</h2>
+      <p>Use these shortcuts to navigate:</p>
+      <div class="demo-buttons">
+        <div style="padding: 12px; background: #2a2a2a; border-radius: 8px; border: 1px solid #3a3a3a;">
+          <code>Cmd/Ctrl + Shift + W</code> → Open workflow selector
+        </div>
+        <div style="padding: 12px; background: #2a2a2a; border-radius: 8px; border: 1px solid #3a3a3a;">
+          <code>↑ ↓</code> → Navigate workflows
+        </div>
+        <div style="padding: 12px; background: #2a2a2a; border-radius: 8px; border: 1px solid #3a3a3a;">
+          <code>Enter</code> → Run selected workflow
+        </div>
+        <div style="padding: 12px; background: #2a2a2a; border-radius: 8px; border: 1px solid #3a3a3a;">
+          <code>Esc</code> → Close dialogs
+        </div>
+      </div>
+    </div>
+    
+    <div class="demo-section">
+      <h2>📊 Features</h2>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value">7</div>
+          <div class="stat-label">Step Types</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">5</div>
+          <div class="stat-label">Built-in Workflows</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">100%</div>
+          <div class="stat-label">Keyboard Accessible</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">500+</div>
+          <div class="stat-label">Lines of Code</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="demo-section">
+      <h2>🎯 Status: Day 13 Complete</h2>
+      <p>✅ Workflow selector with fuzzy search<br>
+         ✅ Progress tracking with animations<br>
+         ✅ Variable input forms<br>
+         ✅ Real-time step status updates<br>
+         ✅ Cancel/error handling<br>
+         ✅ Keyboard navigation<br>
+         ✅ Responsive design</p>
+    </div>
+  </div>
+  
+  <script src="src/renderer/workflow-engine.js"></script>
+  <script src="src/renderer/workflow-ui.js"></script>
+  <script src="flux-desktop/workflows/git-commit-push.json" type="application/json" id="workflow-git"></script>
+  <script src="flux-desktop/workflows/deploy-production.json" type="application/json" id="workflow-deploy"></script>
+  <script src="flux-desktop/workflows/docker-cleanup.json" type="application/json" id="workflow-docker"></script>
+  <script src="flux-desktop/workflows/npm-publish.json" type="application/json" id="workflow-npm"></script>
+  <script src="flux-desktop/workflows/database-migration.json" type="application/json" id="workflow-db"></script>
+  
+  <script>
+    // Initialize workflow engine and UI
+    const engine = new WorkflowEngine();
+    const ui = new WorkflowUI(engine);
+    
+    // Load built-in workflows
+    async function loadWorkflows() {
+      const workflows = [
+        {
+          name: "Git Commit & Push",
+          description: "Add, commit, and push changes to remote repository",
+          tags: ["git", "version-control"],
+          author: "Flux Team",
+          steps: [
+            { type: "command", name: "Check git status", command: "git status --short" },
+            { type: "command", name: "Stage all changes", command: "git add ." },
+            { type: "input", name: "Get commit message", prompt: "Commit message:", variable: "message", required: true },
+            { type: "command", name: "Commit changes", command: "git commit -m '{{message}}'" },
+            { type: "confirm", name: "Push to remote?", message: "Push changes to origin?", default: true },
+            { type: "command", name: "Push to remote", command: "git push origin main" },
+            { type: "success", message: "✅ Changes committed and pushed!" }
+          ]
+        },
+        {
+          name: "Deploy to Production",
+          description: "Build, test, and deploy application to production environment",
+          tags: ["deploy", "production", "ci/cd"],
+          author: "Flux Team",
+          variables: [
+            { name: "environment", description: "Target environment", type: "select", options: ["staging", "production"], default: "production" }
+          ],
+          steps: [
+            { type: "command", name: "Install dependencies", command: "npm install" },
+            { type: "command", name: "Run tests", command: "npm test" },
+            { type: "command", name: "Build application", command: "npm run build" },
+            { type: "confirm", name: "Deploy confirmation", message: "Deploy to {{environment}}?", default: false },
+            { type: "command", name: "Deploy", command: "npm run deploy:{{environment}}" },
+            { type: "command", name: "Health check", command: "curl https://api.example.com/health" },
+            { type: "success", message: "🎉 Deployed to {{environment}} successfully!" }
+          ]
+        },
+        {
+          name: "Docker Cleanup",
+          description: "Remove unused Docker containers, images, and volumes",
+          tags: ["docker", "cleanup", "maintenance"],
+          author: "Flux Team",
+          steps: [
+            { type: "command", name: "Stop all containers", command: "docker stop $(docker ps -aq)" },
+            { type: "command", name: "Remove containers", command: "docker rm $(docker ps -aq)" },
+            { type: "command", name: "Remove unused images", command: "docker image prune -af" },
+            { type: "confirm", name: "Remove volumes?", message: "Also remove volumes? (⚠️  This deletes data)", default: false },
+            { type: "conditional", name: "Volume cleanup", condition: "{{confirmVolumes}}", steps: [
+              { type: "command", name: "Remove volumes", command: "docker volume prune -f" }
+            ]},
+            { type: "command", name: "Show disk usage", command: "docker system df" },
+            { type: "success", message: "✅ Docker cleanup complete!" }
+          ]
+        },
+        {
+          name: "NPM Publish Package",
+          description: "Build, test, version bump, and publish NPM package",
+          tags: ["npm", "publish", "package"],
+          author: "Flux Team",
+          variables: [
+            { name: "version", description: "Version bump type", type: "select", options: ["patch", "minor", "major"], default: "patch" }
+          ],
+          steps: [
+            { type: "command", name: "Run tests", command: "npm test" },
+            { type: "command", name: "Build package", command: "npm run build" },
+            { type: "command", name: "Version bump", command: "npm version {{version}}" },
+            { type: "command", name: "Generate changelog", command: "npm run changelog" },
+            { type: "confirm", name: "Publish confirmation", message: "Publish to NPM registry?", default: false },
+            { type: "command", name: "Publish package", command: "npm publish" },
+            { type: "command", name: "Push git tags", command: "git push --follow-tags" },
+            { type: "command", name: "Create GitHub release", command: "gh release create v$(node -p \"require('./package.json').version\")" },
+            { type: "success", message: "📦 Package published successfully!" }
+          ]
+        },
+        {
+          name: "Database Migration",
+          description: "Run database migrations with backup and rollback support",
+          tags: ["database", "migration", "backup"],
+          author: "Flux Team",
+          variables: [
+            { name: "direction", description: "Migration direction", type: "select", options: ["up", "down"], default: "up" }
+          ],
+          steps: [
+            { type: "command", name: "Backup database", command: "pg_dump mydb > backup.sql" },
+            { type: "confirm", name: "Run migration?", message: "Run migration {{direction}}?", default: true },
+            { type: "command", name: "Run migration", command: "npm run migrate:{{direction}}" },
+            { type: "command", name: "Verify migration", command: "npm run migrate:status" },
+            { type: "success", message: "✅ Migration complete!" },
+            { type: "error", message: "❌ Migration failed. Restore with: psql mydb < backup.sql" }
+          ]
+        }
+      ];
+      
+      // Register all workflows
+      workflows.forEach(workflow => {
+        engine.registerWorkflow(workflow);
+      });
+      
+      console.log('✅ Loaded', workflows.length, 'workflows');
+    }
+    
+    // Load workflows on page load
+    loadWorkflows();
+    
+    // Demo functions
+    function openWorkflowSelector() {
+      ui.showWorkflowSelector();
+    }
+    
+    function runGitWorkflow() {
+      ui.runWorkflow("Git Commit & Push");
+    }
+    
+    function runDeployWorkflow() {
+      ui.runWorkflow("Deploy to Production");
+    }
+    
+    function runDockerWorkflow() {
+      ui.runWorkflow("Docker Cleanup");
+    }
+    
+    function runNpmWorkflow() {
+      ui.runWorkflow("NPM Publish Package");
+    }
+    
+    console.log('🚀 Flux Workflow UI Demo Ready!');
+    console.log('Press Cmd/Ctrl+Shift+W to open workflow selector');
+  </script>
+</body>
+</html>
