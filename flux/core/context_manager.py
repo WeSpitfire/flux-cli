@@ -61,6 +61,10 @@ class ContextManager:
         if current_tokens <= self.max_context_tokens:
             return history  # Already within budget
         
+        # Use a more aggressive target (75% of max) to leave room for tool pairs
+        # that might be added back by _ensure_tool_pairs()
+        aggressive_target = int(self.max_context_tokens * 0.75)
+        
         # Score each message by importance
         scored_messages = []
         for i, msg in enumerate(history):
@@ -81,10 +85,10 @@ class ContextManager:
         pruned = [msg for msg, _, _ in must_keep]
         pruned_tokens = self._estimate_tokens(pruned)
         
-        # Add messages from prunable set until we hit budget
+        # Add messages from prunable set until we hit aggressive target
         for msg, importance, _ in can_prune:
             msg_tokens = self._estimate_tokens([msg])
-            if pruned_tokens + msg_tokens <= self.max_context_tokens:
+            if pruned_tokens + msg_tokens <= aggressive_target:
                 pruned.append(msg)
                 pruned_tokens += msg_tokens
             else:
@@ -92,7 +96,7 @@ class ContextManager:
                 if importance.score > 0.8:
                     summary_msg = self._summarize_message(msg)
                     summary_tokens = self._estimate_tokens([summary_msg])
-                    if pruned_tokens + summary_tokens <= self.max_context_tokens:
+                    if pruned_tokens + summary_tokens <= aggressive_target:
                         pruned.append(summary_msg)
                         pruned_tokens += summary_tokens
         
