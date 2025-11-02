@@ -107,7 +107,10 @@ function initializeTerminalForTab(tabId, containerElement) {
     state: {
       commandHistory: [],
       historyIndex: -1,
-      isProcessing: false
+      isProcessing: false,
+      outputQueue: [],
+      isTyping: false,
+      typingTimer: null
     }
   });
   
@@ -258,10 +261,14 @@ function cancelCommand() {
   // Send cancel signal to backend for active tab
   window.flux.cancelCommand(tabManager.activeTabId);
   
-  // Clear output queue
-  outputQueue = [];
+  // Clear this tab's output queue
+  activeTerminal.state.outputQueue = [];
   skipAnimation = false;
-  isTyping = false;
+  activeTerminal.state.isTyping = false;
+  if (activeTerminal.state.typingTimer) {
+    clearTimeout(activeTerminal.state.typingTimer);
+    activeTerminal.state.typingTimer = null;
+  }
   
   // Update UI
   activeTerminal.terminal.writeln('\r\n\x1b[33m^C Command cancelled\x1b[0m');
@@ -346,55 +353,61 @@ function executeCommand(command) {
   startInactivityCheck();
 }
 
-// Typewriter effect for readable output
-let outputQueue = [];
-let isTyping = false;
+// Typewriter effect settings
 let TYPING_SPEED = 15; // milliseconds per character (adjustable: lower = faster)
 let skipAnimation = false;
 let lastOutputTime = null;
 let inactivityCheckInterval = null;
 
-function typewriterEffect() {
-  const activeTerminal = getActiveTerminal();
-  if (!activeTerminal) return;
+function typewriterEffectForTab(tabId) {
+  const terminalData = terminals.get(tabId);
+  if (!terminalData) return;
   
-  if (outputQueue.length === 0) {
-    isTyping = false;
-    skipAnimation = false;
-    updateStatus('', 'Ready');
-    activeTerminal.state.isProcessing = false;
-    updateSendButton(false);
-    hideTypingIndicator();
-    stopInactivityCheck();
+  const { terminal, state } = terminalData;
+  
+  if (state.outputQueue.length === 0) {
+    state.isTyping = false;
+    state.typingTimer = null;
+    
+    // Only update UI if this is the active tab
+    if (tabId === tabManager.activeTabId) {
+      skipAnimation = false;
+      updateStatus('', 'Ready');
+      state.isProcessing = false;
+      updateSendButton(false);
+      hideTypingIndicator();
+      stopInactivityCheck();
+    }
     return;
   }
   
-  isTyping = true;
+  state.isTyping = true;
   
   // If skip is requested, flush all at once
-  if (skipAnimation) {
-    const remainingText = outputQueue.join('');
-    outputQueue = [];
-    activeTerminal.terminal.write(remainingText);
-    activeTerminal.terminal.scrollToBottom();
-    isTyping = false;
+  if (skipAnimation && tabId === tabManager.activeTabId) {
+    const remainingText = state.outputQueue.join('');
+    state.outputQueue = [];
+    terminal.write(remainingText);
+    terminal.scrollToBottom();
+    state.isTyping = false;
+    state.typingTimer = null;
     skipAnimation = false;
     updateStatus('', 'Ready');
-    activeTerminal.state.isProcessing = false;
+    state.isProcessing = false;
     updateSendButton(false);
     stopInactivityCheck();
     return;
   }
   
-  const char = outputQueue.shift();
-  activeTerminal.terminal.write(char);
+  const char = state.outputQueue.shift();
+  terminal.write(char);
   
   // Auto-scroll periodically
-  if (outputQueue.length % 50 === 0) {
-    activeTerminal.terminal.scrollToBottom();
+  if (state.outputQueue.length % 50 === 0) {
+    terminal.scrollToBottom();
   }
   
-  setTimeout(typewriterEffect, TYPING_SPEED);
+  state.typingTimer = setTimeout(() => typewriterEffectForTab(tabId), TYPING_SPEED);
 }
 
 // Inactivity detection - reset state if no output for 3 seconds after last output
@@ -413,7 +426,7 @@ function startInactivityCheck() {
     // If we're still processing but haven't received output in 3 seconds
     if (activeTerminal.state.isProcessing && lastOutputTime) {
       const timeSinceOutput = Date.now() - lastOutputTime;
-      if (timeSinceOutput > 3000 && outputQueue.length === 0 && !isTyping) {
+      if (timeSinceOutput > 3000 && activeTerminal.state.outputQueue.length === 0 && !activeTerminal.state.isTyping) {
         console.log('No output for 3s, resetting processing state');
         clearInterval(inactivityCheckInterval);
         inactivityCheckInterval = null;
@@ -444,22 +457,19 @@ window.flux.onOutput((tabId, data) => {
     return;
   }
   
-  // Only process output if this is the active tab
+  // Add characters to this tab's queue
+  for (let i = 0; i < data.length; i++) {
+    terminalData.state.outputQueue.push(data[i]);
+  }
+  
+  // Update last output time if this is the active tab
   if (tabId === tabManager.activeTabId) {
     lastOutputTime = Date.now();
-    
-    // Add characters to queue
-    for (let i = 0; i < data.length; i++) {
-      outputQueue.push(data[i]);
-    }
-    
-    // Start typing if not already typing
-    if (!isTyping) {
-      typewriterEffect();
-    }
-  } else {
-    // For inactive tabs, just write directly without animation
-    terminalData.terminal.write(data);
+  }
+  
+  // Start typing animation for this tab if not already typing
+  if (!terminalData.state.isTyping) {
+    typewriterEffectForTab(tabId);
   }
 });
 
@@ -542,10 +552,14 @@ clearBtn.addEventListener('click', () => {
   const activeTerminal = getActiveTerminal();
   if (!activeTerminal) return;
   
-  // Clear any pending output
-  outputQueue = [];
+  // Clear any pending output for this tab
+  activeTerminal.state.outputQueue = [];
   skipAnimation = false;
-  isTyping = false;
+  activeTerminal.state.isTyping = false;
+  if (activeTerminal.state.typingTimer) {
+    clearTimeout(activeTerminal.state.typingTimer);
+    activeTerminal.state.typingTimer = null;
+  }
   activeTerminal.terminal.clear();
   activeTerminal.terminal.writeln('\x1b[2mTerminal cleared\x1b[0m');
 });
