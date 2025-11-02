@@ -518,7 +518,8 @@ commandInput.addEventListener('keydown', (e) => {
   
   // Skip animation on Ctrl+C or Escape
   if ((e.key === 'c' && (e.ctrlKey || e.metaKey)) || e.key === 'Escape') {
-    if (isTyping) {
+    const activeTerminal = getActiveTerminal();
+    if (activeTerminal && activeTerminal.state.isTyping) {
       e.preventDefault();
       skipAnimation = true;
     }
