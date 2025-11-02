@@ -136,6 +136,11 @@ class TabManager {
       window.initializeTerminalForTab(tabId, newTab.terminalElement);
     }
 
+    // Update history UI for new active tab
+    if (window.updateHistoryUI) {
+      window.updateHistoryUI();
+    }
+    
     // Focus on command input
     const commandInput = document.getElementById('command-input');
     if (commandInput) {
