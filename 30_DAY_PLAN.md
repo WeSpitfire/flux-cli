@@ -7,7 +7,7 @@ Ship 3 killer features that make Flux noticeably better than Warp
 
 ## Week 1: Command Palette (Cmd+K) ⚡
 
-**Status**: ✅ Day 1-2 Complete | 🚧 Day 3-5 In Progress
+**Status**: ✅ COMPLETE (Days 1-5) | Commits: 0daf29b, 3b07f3d
 
 ### Why This First?
 - **High impact, low effort** - Warp users expect this
