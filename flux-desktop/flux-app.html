@@ -640,10 +640,25 @@
     // Initialize Flux Application
     class FluxApp {
       constructor() {
+        // Performance tracking
+        const startTime = performance.now();
+        
         this.commandHistory = [];
+        this.performanceMetrics = {
+          startTime,
+          interactions: 0,
+          lastInteraction: 0
+        };
+        
         this.initializeFeatures();
         this.setupKeyboardShortcuts();
         this.loadSampleData();
+        
+        // Setup performance utilities
+        this.setupPerformanceUtils();
+        
+        const loadTime = performance.now() - startTime;
+        console.log(`✅ Flux initialized in ${loadTime.toFixed(2)}ms`);
       }
       
       initializeFeatures() {
@@ -658,7 +673,8 @@
         // Initialize command intelligence
         this.commandIntelligence = new CommandIntelligence();
         
-        console.log('✅ Flux initialized');
+        // Cleanup old data
+        this.cleanupLocalStorage();
       }
       
       setupKeyboardShortcuts() {
@@ -743,6 +759,99 @@
             </div>
           `).join('');
         }
+      }
+      
+      // Performance Utilities
+      setupPerformanceUtils() {
+        // Debounced functions
+        this.debouncedSearch = this.debounce(this.performSearch.bind(this), 150);
+        this.debouncedResize = this.debounce(this.handleResize.bind(this), 250);
+        
+        // Track interactions
+        document.addEventListener('click', () => {
+          this.performanceMetrics.interactions++;
+          this.performanceMetrics.lastInteraction = performance.now();
+        });
+        
+        // Monitor memory usage
+        if (performance.memory) {
+          setInterval(() => {
+            const memory = performance.memory;
+            if (memory.usedJSHeapSize > 50 * 1024 * 1024) {
+              console.warn('⚠️ High memory:', (memory.usedJSHeapSize / 1024 / 1024).toFixed(2) + 'MB');
+            }
+          }, 30000);
+        }
+      }
+      
+      debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+          clearTimeout(timeout);
+          timeout = setTimeout(() => func(...args), wait);
+        };
+      }
+      
+      throttle(func, limit) {
+        let inThrottle;
+        return function(...args) {
+          if (!inThrottle) {
+            func.apply(this, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+          }
+        };
+      }
+      
+      memoize(fn) {
+        const cache = new Map();
+        return function(...args) {
+          const key = JSON.stringify(args);
+          if (cache.has(key)) return cache.get(key);
+          const result = fn.apply(this, args);
+          cache.set(key, result);
+          return result;
+        };
+      }
+      
+      performSearch(query) {
+        console.log('Searching:', query);
+      }
+      
+      handleResize() {
+        console.log('Window resized');
+      }
+      
+      cleanupLocalStorage() {
+        const maxAge = 90 * 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith('flux_')) {
+              const item = JSON.parse(localStorage.getItem(key));
+              if (item.timestamp && now - item.timestamp > maxAge) {
+                localStorage.removeItem(key);
+                console.log('🧹 Cleaned up:', key);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Cleanup failed:', e);
+        }
+      }
+      
+      getPerformanceMetrics() {
+        return {
+          uptime: ((performance.now() - this.performanceMetrics.startTime) / 1000).toFixed(2) + 's',
+          interactions: this.performanceMetrics.interactions,
+          memory: performance.memory ? {
+            used: (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(2) + 'MB',
+            total: (performance.memory.totalJSHeapSize / 1024 / 1024).toFixed(2) + 'MB',
+            limit: (performance.memory.jsHeapSizeLimit / 1024 / 1024).toFixed(2) + 'MB'
+          } : 'N/A'
+        };
       }
     }
     
