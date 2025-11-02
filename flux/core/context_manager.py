@@ -193,8 +193,10 @@ class ContextManager:
         """Ensure tool_calls and tool results stay paired for OpenAI.
         
         OpenAI requires that:
-        - A message with 'tool_calls' must be followed by 'tool' role messages
+        - A message with 'tool_calls' must be followed by 'tool' role messages for EACH tool_call_id
         - 'tool' role messages must follow a message with 'tool_calls'
+        
+        This method ensures complete pairs are kept or removed together.
         
         Args:
             pruned: Pruned message list
@@ -206,48 +208,81 @@ class ContextManager:
         if not pruned:
             return pruned
         
-        fixed = []
         original_indices = {id(msg): i for i, msg in enumerate(original)}
         
+        # Build a set of tool_call_ids that have responses in pruned list
+        tool_responses_present = set()
         for msg in pruned:
-            # If this is a 'tool' message, ensure its assistant message with tool_calls is included
             if msg.get('role') == 'tool':
-                # Find the preceding assistant message with tool_calls in original history
-                msg_idx = original_indices.get(id(msg))
-                if msg_idx is not None:
-                    # Look backward for assistant message with tool_calls
-                    for i in range(msg_idx - 1, -1, -1):
-                        prev_msg = original[i]
-                        if prev_msg.get('role') == 'assistant' and prev_msg.get('tool_calls'):
-                            # Add it if not already in fixed list
-                            if prev_msg not in fixed:
-                                fixed.append(prev_msg)
-                            break
-            
-            fixed.append(msg)
+                tool_call_id = msg.get('tool_call_id')
+                if tool_call_id:
+                    tool_responses_present.add(tool_call_id)
         
-        # Remove orphaned tool messages (those without their assistant message)
+        # For each assistant message with tool_calls, ensure ALL responses are present
+        messages_to_add = []
+        for msg in pruned:
+            if msg.get('role') == 'assistant' and msg.get('tool_calls'):
+                # Get all tool_call_ids from this message
+                tool_call_ids = {tc.get('id') for tc in msg.get('tool_calls', [])}
+                
+                # Check if all responses are present
+                missing_responses = tool_call_ids - tool_responses_present
+                
+                if missing_responses:
+                    # Find the missing tool responses in original history
+                    msg_idx = original_indices.get(id(msg))
+                    if msg_idx is not None:
+                        # Look forward for tool messages with these IDs
+                        for i in range(msg_idx + 1, len(original)):
+                            orig_msg = original[i]
+                            if orig_msg.get('role') == 'tool':
+                                tool_call_id = orig_msg.get('tool_call_id')
+                                if tool_call_id in missing_responses:
+                                    messages_to_add.append((i, orig_msg))
+                                    missing_responses.remove(tool_call_id)
+                            elif orig_msg.get('role') in ['user', 'assistant']:
+                                # Stop at next conversation turn
+                                break
+        
+        # Add missing messages in chronological order
+        combined = pruned + [msg for _, msg in messages_to_add]
+        combined.sort(key=lambda m: original_indices.get(id(m), len(original)))
+        
+        # Now remove any incomplete pairs
+        # If assistant has tool_calls but not ALL responses, remove both
         final = []
         i = 0
-        while i < len(fixed):
-            msg = fixed[i]
+        while i < len(combined):
+            msg = combined[i]
             
-            if msg.get('role') == 'tool':
-                # Check if there's a preceding assistant with tool_calls
-                has_preceding_assistant = False
-                for j in range(i - 1, -1, -1):
-                    if fixed[j].get('role') == 'assistant':
-                        if fixed[j].get('tool_calls'):
-                            has_preceding_assistant = True
-                        break
+            if msg.get('role') == 'assistant' and msg.get('tool_calls'):
+                # Check if all tool responses follow
+                tool_call_ids = {tc.get('id') for tc in msg.get('tool_calls', [])}
+                found_responses = set()
                 
-                if has_preceding_assistant:
-                    final.append(msg)
-                # Otherwise skip this orphaned tool message
+                # Look ahead for tool responses
+                j = i + 1
+                temp_msgs = [msg]
+                while j < len(combined) and combined[j].get('role') == 'tool':
+                    tool_call_id = combined[j].get('tool_call_id')
+                    if tool_call_id in tool_call_ids:
+                        found_responses.add(tool_call_id)
+                        temp_msgs.append(combined[j])
+                    j += 1
+                
+                # Only keep if we have ALL responses
+                if found_responses == tool_call_ids:
+                    final.extend(temp_msgs)
+                    i = j
+                else:
+                    # Skip this incomplete pair
+                    i = j
+            elif msg.get('role') == 'tool':
+                # Orphaned tool message (already handled above)
+                i += 1
             else:
                 final.append(msg)
-            
-            i += 1
+                i += 1
         
         return final
     
