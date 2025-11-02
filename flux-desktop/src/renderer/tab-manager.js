@@ -144,6 +144,11 @@ class TabManager {
     const tab = this.tabs.get(tabId);
     if (!tab) return;
 
+    // Cleanup flux process
+    if (window.flux && window.flux.destroyProcess) {
+      window.flux.destroyProcess(tabId);
+    }
+    
     // Cleanup terminal
     if (tab.terminal) {
       tab.terminal.dispose();

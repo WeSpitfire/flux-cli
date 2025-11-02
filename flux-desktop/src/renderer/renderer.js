@@ -116,6 +116,8 @@ function initializeTerminalForTab(tabId, containerElement) {
     const tab = window.tabManager.tabs.get(tabId);
     if (tab) {
       tab.terminal = terminal;
+      // Create flux process for this tab
+      window.flux.createProcess(tabId, tab.cwd);
     }
   }
   
@@ -253,8 +255,8 @@ function cancelCommand() {
   const activeTerminal = getActiveTerminal();
   if (!activeTerminal || !activeTerminal.state.isProcessing) return;
   
-  // Send cancel signal to backend
-  window.flux.cancelCommand();
+  // Send cancel signal to backend for active tab
+  window.flux.cancelCommand(tabManager.activeTabId);
   
   // Clear output queue
   outputQueue = [];
@@ -337,8 +339,8 @@ function executeCommand(command) {
   addToHistory(command);
   activeTerminal.state.historyIndex = -1;
   
-  // Send to backend
-  window.flux.sendCommand(command);
+  // Send to backend with active tab ID
+  window.flux.sendCommand(tabManager.activeTabId, command);
   
   // Start inactivity detection
   startInactivityCheck();
@@ -431,36 +433,57 @@ function stopInactivityCheck() {
   lastOutputTime = null;
 }
 
-// Handle flux output with typewriter effect
-window.flux.onOutput((data) => {
-  console.log('Received flux output:', data.length, 'chars');
-  lastOutputTime = Date.now();
+// Handle flux output with typewriter effect - now with tabId
+window.flux.onOutput((tabId, data) => {
+  console.log(`Received flux output for tab ${tabId}:`, data.length, 'chars');
   
-  // Add characters to queue
-  for (let i = 0; i < data.length; i++) {
-    outputQueue.push(data[i]);
+  // Get terminal for this tab
+  const terminalData = terminals.get(tabId);
+  if (!terminalData) {
+    console.warn(`No terminal found for tab ${tabId}`);
+    return;
   }
   
-  // Start typing if not already typing
-  if (!isTyping) {
-    typewriterEffect();
+  // Only process output if this is the active tab
+  if (tabId === tabManager.activeTabId) {
+    lastOutputTime = Date.now();
+    
+    // Add characters to queue
+    for (let i = 0; i < data.length; i++) {
+      outputQueue.push(data[i]);
+    }
+    
+    // Start typing if not already typing
+    if (!isTyping) {
+      typewriterEffect();
+    }
+  } else {
+    // For inactive tabs, just write directly without animation
+    terminalData.terminal.write(data);
   }
 });
 
-// Handle flux errors
-window.flux.onError((data) => {
-  const activeTerminal = getActiveTerminal();
-  if (activeTerminal) {
-    activeTerminal.terminal.write(`\x1b[31m${data}\x1b[0m`);
-    activeTerminal.state.isProcessing = false;
+// Handle flux errors - now with tabId
+window.flux.onError((tabId, data) => {
+  console.error(`Flux error for tab ${tabId}:`, data);
+  
+  const terminalData = terminals.get(tabId);
+  if (terminalData) {
+    terminalData.terminal.write(`\x1b[31m${data}\x1b[0m`);
+    terminalData.state.isProcessing = false;
   }
-  updateStatus('error', 'Error');
-  updateSendButton(false);
-  stopInactivityCheck();
+  
+  // Only update UI if this is the active tab
+  if (tabId === tabManager.activeTabId) {
+    updateStatus('error', 'Error');
+    updateSendButton(false);
+    stopInactivityCheck();
+  }
 });
 
-// Handle flux cancellation
-window.flux.onCancelled(() => {
+// Handle flux cancellation - now with tabId
+window.flux.onCancelled((tabId) => {
+  console.log(`Command cancelled for tab ${tabId}`);
   // Cancellation already handled in cancelCommand()
   // This is for backend confirmation if needed
 });

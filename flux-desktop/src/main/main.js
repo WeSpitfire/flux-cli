@@ -3,7 +3,8 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-let fluxProcess = null;
+// Map of tabId -> flux process
+const fluxProcesses = new Map();
 
 function createWindow () {
   const win = new BrowserWindow({
@@ -19,73 +20,96 @@ function createWindow () {
 
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
-  // Spawn Flux CLI process in interactive mode
-  const projectRoot = path.join(__dirname, '../../..');
-  const venvFluxPath = path.join(projectRoot, 'venv', 'bin', 'flux');
-  
-  const fluxCommand = fs.existsSync(venvFluxPath) ? venvFluxPath : 'flux';
-  
-  console.log('Spawning Flux CLI from:', projectRoot);
-  console.log('Flux command:', fluxCommand);
-  
-  fluxProcess = spawn(fluxCommand, [], {
-    cwd: projectRoot,
-    env: { 
-      ...process.env,
-      PYTHONUNBUFFERED: '1',
-      FORCE_COLOR: '1',
-      TERM: 'xterm-256color'
-    },
-    shell: false
-  });
+  // Helper to spawn a new Flux process for a tab
+  function spawnFluxForTab(tabId, cwd) {
+    const projectRoot = path.join(__dirname, '../../..');
+    const venvFluxPath = path.join(projectRoot, 'venv', 'bin', 'flux');
+    const fluxCommand = fs.existsSync(venvFluxPath) ? venvFluxPath : 'flux';
+    
+    console.log(`Spawning Flux CLI for tab ${tabId} in:`, cwd || projectRoot);
+    
+    const fluxProcess = spawn(fluxCommand, [], {
+      cwd: cwd || projectRoot,
+      env: { 
+        ...process.env,
+        PYTHONUNBUFFERED: '1',
+        FORCE_COLOR: '1',
+        TERM: 'xterm-256color'
+      },
+      shell: false
+    });
 
-  fluxProcess.stdout.on('data', (data) => {
-    const output = data.toString();
-    console.log('[Flux stdout]:', output);
-    if (!win.isDestroyed()) {
-      win.webContents.send('flux-output', output);
-    }
-  });
-
-  fluxProcess.stderr.on('data', (data) => {
-    const error = data.toString();
-    console.error('[Flux stderr]:', error);
-    if (!win.isDestroyed()) {
-      win.webContents.send('flux-error', error);
-    }
-  });
-
-  fluxProcess.on('error', (error) => {
-    const errorMsg = `Process error: ${error.message}\n\nTroubleshooting:\n- Ensure Flux CLI is installed: pip install -e .\n- Check that 'flux' command is in PATH\n- Try running 'flux' in terminal to verify`;
-    console.error('[Flux process error]:', error);
-    if (!win.isDestroyed()) {
-      win.webContents.send('flux-error', errorMsg);
-    }
-  });
-
-  fluxProcess.on('close', (code) => {
-    if (code !== 0) {
-      const errorMsg = `Flux process exited with code ${code}`;
-      console.error('[Flux close]:', errorMsg);
+    fluxProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      console.log(`[Flux ${tabId} stdout]:`, output);
       if (!win.isDestroyed()) {
-        win.webContents.send('flux-error', errorMsg);
+        win.webContents.send('flux-output', { tabId, data: output });
       }
-    }
+    });
+
+    fluxProcess.stderr.on('data', (data) => {
+      const error = data.toString();
+      console.error(`[Flux ${tabId} stderr]:`, error);
+      if (!win.isDestroyed()) {
+        win.webContents.send('flux-error', { tabId, data: error });
+      }
+    });
+
+    fluxProcess.on('error', (error) => {
+      const errorMsg = `Process error: ${error.message}\n\nTroubleshooting:\n- Ensure Flux CLI is installed: pip install -e .\n- Check that 'flux' command is in PATH\n- Try running 'flux' in terminal to verify`;
+      console.error(`[Flux ${tabId} process error]:`, error);
+      if (!win.isDestroyed()) {
+        win.webContents.send('flux-error', { tabId, data: errorMsg });
+      }
+    });
+
+    fluxProcess.on('close', (code) => {
+      console.log(`[Flux ${tabId}] Process closed with code ${code}`);
+      fluxProcesses.delete(tabId);
+      
+      if (code !== 0 && !win.isDestroyed()) {
+        const errorMsg = `Flux process exited with code ${code}`;
+        win.webContents.send('flux-error', { tabId, data: errorMsg });
+      }
+    });
+
+    fluxProcesses.set(tabId, fluxProcess);
+    return fluxProcess;
+  }
+
+  // IPC handlers for tab-specific flux processes
+  ipcMain.on('flux-create-process', (event, { tabId, cwd }) => {
+    console.log('Creating flux process for tab:', tabId);
+    spawnFluxForTab(tabId, cwd);
   });
 
-  ipcMain.on('flux-command', (event, command) => {
+  ipcMain.on('flux-command', (event, { tabId, command }) => {
+    const fluxProcess = fluxProcesses.get(tabId);
     if (fluxProcess && !fluxProcess.killed) {
+      console.log(`Sending command to tab ${tabId}:`, command);
       fluxProcess.stdin.write(command + '\n');
+    } else {
+      console.error(`No flux process found for tab ${tabId}`);
     }
   });
 
-  ipcMain.on('flux-cancel', (event) => {
+  ipcMain.on('flux-cancel', (event, { tabId }) => {
+    const fluxProcess = fluxProcesses.get(tabId);
     if (fluxProcess && !fluxProcess.killed) {
-      // Send Ctrl+C (SIGINT) to interrupt the process
+      console.log(`Cancelling command for tab ${tabId}`);
       fluxProcess.kill('SIGINT');
       if (!win.isDestroyed()) {
-        win.webContents.send('flux-cancelled');
+        win.webContents.send('flux-cancelled', { tabId });
       }
+    }
+  });
+
+  ipcMain.on('flux-destroy-process', (event, { tabId }) => {
+    const fluxProcess = fluxProcesses.get(tabId);
+    if (fluxProcess && !fluxProcess.killed) {
+      console.log(`Destroying flux process for tab ${tabId}`);
+      fluxProcess.kill();
+      fluxProcesses.delete(tabId);
     }
   });
 
