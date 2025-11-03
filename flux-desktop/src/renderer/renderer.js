@@ -485,12 +485,8 @@ function typewriterEffectForTab(tabId) {
     state.isTyping = false;
     state.typingTimer = null;
     
-    // Flush any remaining buffer with formatting
-    if (state.outputBuffer && state.outputBuffer.trim()) {
-      const formatted = terminalFormatter.formatMarkdown(state.outputBuffer);
-      terminal.write(formatted);
-      state.outputBuffer = '';
-    }
+    // Clear buffer (already processed and added to queue by onOutput handler)
+    state.outputBuffer = '';
     
     // Add Flux response footer if we had a header
     if (state.hasFluxHeader) {
