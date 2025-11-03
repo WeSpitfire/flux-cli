@@ -449,8 +449,18 @@ function executeCommand(command) {
   addToHistory(command);
   activeTerminal.state.historyIndex = -1;
   
-  // Send to backend with active tab ID
-  window.flux.sendCommand(tabManager.activeTabId, command);
+  // For multi-line commands, encode newlines so they arrive as a single line
+  // Flux will decode them on the other end
+  const hasNewlines = command.includes('\n');
+  
+  if (hasNewlines) {
+    // Replace actual newlines with placeholder that won't be split
+    const encoded = command.replace(/\n/g, '<<<NEWLINE>>>');
+    window.flux.sendCommand(tabManager.activeTabId, encoded);
+  } else {
+    // Send single-line command directly
+    window.flux.sendCommand(tabManager.activeTabId, command);
+  }
   
   // Start inactivity detection
   startInactivityCheck();

@@ -1,0 +1,67 @@
+Create a comprehensive demo module in flux/demos/comprehensive_test.py that showcases multiple Flux capabilities:
+
+1. FILE OPERATIONS:
+   - Create a class called FluxComprehensiveDemo
+   - Add an __init__ method that takes a project_path: Path parameter
+   - Store it as self.project_path
+
+2. CODE ANALYSIS:
+   - Add method analyze_python_files() -> Dict[str, Any] that:
+     * Uses pathlib to recursively find all .py files in project_path
+     * Counts total files, total lines of code
+     * Uses ast module to count functions and classes
+     * Returns a dictionary with these metrics
+
+3. GIT INTEGRATION:
+   - Add method get_recent_commits(count: int = 5) -> List[Dict] that:
+     * Uses subprocess to run: git log -n {count} --pretty=format:"%H|%an|%s|%ad" --date=short
+     * Parses the output into list of dicts with keys: hash, author, message, date
+     * Handles errors if not in a git repo
+
+4. FILE GENERATION:
+   - Add method generate_report(output_file: str = "report.md") that:
+     * Calls analyze_python_files() and get_recent_commits()
+     * Creates a markdown report with both sets of data
+     * Writes to output_file using pathlib
+     * Returns the path to the generated file
+
+5. MAIN FUNCTION:
+   - Create a main() function that:
+     * Takes current directory as project path
+     * Creates FluxComprehensiveDemo instance
+     * Calls analyze_python_files() and prints results
+     * Calls get_recent_commits() and prints results
+     * Calls generate_report()
+     * Add if __name__ == "__main__": block
+
+6. DOCUMENTATION:
+   - Add comprehensive Google-style docstrings for all methods
+   - Include Args, Returns, and Raises sections where appropriate
+   - Add type hints for all parameters and return values
+
+7. ERROR HANDLING:
+   - Add try-except blocks for file operations
+   - Add try-except for git operations with informative messages
+   - Create a custom exception class ProjectAnalysisError
+
+8. TESTING:
+   - Create tests/test_comprehensive_demo.py with:
+     * Test for analyze_python_files using a temp directory
+     * Test for get_recent_commits with mocked subprocess
+     * Test for generate_report checking file creation
+     * Test error handling for non-existent directories
+     * Use pytest and unittest.mock
+
+9. AFTER CREATION:
+   - Run: python -m py_compile flux/demos/comprehensive_test.py
+   - Run: python -m pytest tests/test_comprehensive_demo.py -v
+   - Show me the git diff of changes
+   - Create a checkpoint with message "Comprehensive test complete"
+
+Requirements:
+- Use pathlib for ALL file operations (no os.path)
+- Use subprocess.run() with capture_output=True for git
+- Follow PEP 8 style guidelines
+- Python 3.8+ compatible
+- Include proper type hints from typing module
+- Make all paths work cross-platform

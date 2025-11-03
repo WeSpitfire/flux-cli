@@ -211,6 +211,10 @@ class CLI:
             try:
                 # Get user input (always show normal prompt)
                 query = Prompt.ask(f"\n[bold green]You[/bold green]")
+                
+                # Decode newline placeholders from desktop app
+                if '<<<NEWLINE>>>' in query:
+                    query = query.replace('<<<NEWLINE>>>', '\n')
 
                 if query.lower() in ['exit', 'quit', 'q']:
                     self.console.print("\n[cyan]Goodbye![/cyan]")

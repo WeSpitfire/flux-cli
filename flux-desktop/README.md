@@ -60,6 +60,7 @@ flux-desktop/
 2. **Preload Script** exposes secure IPC API to renderer
 3. **Renderer** creates xterm.js terminal and handles user input
 4. **Communication** flows via IPC: renderer → main → Python → main → renderer
+5. **Multi-line Support** - Desktop app automatically detects multi-line tasks and uses Flux's paste mode protocol to ensure they're processed as single consolidated messages
 
 ## Quick Actions
 
