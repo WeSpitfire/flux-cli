@@ -31,6 +31,8 @@ from flux.core.test_runner import TestRunner, TestResult
 from flux.core.test_watcher import TestWatcher
 from flux.core.auto_fixer import AutoFixer
 from flux.core.auto_fix_watcher import AutoFixWatcher, AutoFixEvent
+from flux.core.orchestrator import AIOrchestrator
+from flux.core.orchestrator_tools import register_all_tools
 from flux.ui.nl_commands import get_parser
 from flux.llm.provider_factory import create_provider
 from flux.llm.prompts import SYSTEM_PROMPT
@@ -134,6 +136,11 @@ class CLI:
         self.tools.register(FindFilesTool(cwd))
         self.tools.register(ASTEditTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
         self.tools.register(ValidationTool(cwd))
+        
+        # Initialize AI Orchestrator
+        self.orchestrator = AIOrchestrator(self.llm, cwd)
+        # Register all tools with orchestrator
+        register_all_tools(self.orchestrator, self)
     
     async def build_codebase_graph(self) -> None:
         """Build the codebase semantic graph (runs in background)."""
@@ -870,11 +877,133 @@ class CLI:
         # Show token usage
         self._show_token_usage()
     
+    async def process_with_orchestrator(self, query: str):
+        """Process a query using the AI orchestrator.
+        
+        Args:
+            query: User's natural language goal
+        """
+        try:
+            # Show that we're planning
+            self.console.print("\n[bold cyan]🎯 Planning workflow...[/bold cyan]")
+            
+            # Execute goal through orchestrator
+            result = await self.orchestrator.execute_goal(
+                goal=query,
+                auto_approve=self.config.auto_approve
+            )
+            
+            # Display plan
+            plan = result['plan']
+            self.console.print(f"\n[bold]Goal:[/bold] {plan['goal']}")
+            self.console.print(f"[dim]Steps: {len(plan['steps'])}[/dim]\n")
+            
+            # Show plan to user
+            if plan['requires_approval'] and not self.config.auto_approve:
+                self.console.print("[bold]Execution Plan:[/bold]")
+                for i, step in enumerate(plan['steps'], 1):
+                    tool_name = step['tool_name']
+                    desc = step['description']
+                    self.console.print(f"  {i}. [{tool_name}] {desc}")
+                
+                # Ask for approval
+                self.console.print()
+                approve = Prompt.ask(
+                    "[bold yellow]Proceed with execution?[/bold yellow]",
+                    choices=["y", "n"],
+                    default="y"
+                )
+                
+                if approve.lower() != 'y':
+                    self.console.print("[yellow]Cancelled[/yellow]")
+                    return
+            
+            # Execute (plan already executed, just show results)
+            self.console.print("\n[bold cyan]📋 Execution Summary:[/bold cyan]\n")
+            self.console.print(result['summary'])
+            
+            # Show success/failure
+            if result['success']:
+                self.console.print("\n[bold green]✓ Workflow completed successfully[/bold green]")
+            else:
+                self.console.print("\n[bold yellow]⚠ Workflow completed with some errors[/bold yellow]")
+            
+        except Exception as e:
+            self.console.print(f"\n[red]Orchestration error: {e}[/red]")
+            self.console.print("[dim]Falling back to normal conversation mode...[/dim]")
+            # Fall back to normal processing
+            await self.process_query_normal(query)
+    
+    def should_use_orchestrator(self, query: str) -> bool:
+        """Determine if query should be handled by orchestrator.
+        
+        Queries that benefit from orchestration:
+        - Build/create features ("add login page")
+        - Multi-step workflows ("fix failing tests")
+        - Testing workflows ("run tests and fix failures")
+        - Code changes with validation ("refactor X and test")
+        
+        Queries that should use normal flow:
+        - Simple questions ("what does this do?")
+        - Explanations ("explain this code")
+        - Direct slash commands already handled
+        """
+        query_lower = query.lower()
+        
+        # Orchestration triggers
+        orchestration_patterns = [
+            # Build/create
+            r'(build|create|add|make|generate).*?(page|feature|component|function|class|api|endpoint)',
+            # Testing
+            r'(run|execute).*?tests?',
+            r'fix.*?(test|failing)',
+            # Workflows
+            r'(refactor|optimize|improve).*?(and|then)',
+            r'.*?(test|check|validate).*?(after|and)',
+            # Commit
+            r'(commit|save).*?(changes|work)',
+        ]
+        
+        import re
+        for pattern in orchestration_patterns:
+            if re.search(pattern, query_lower):
+                return True
+        
+        # Avoid orchestration for questions
+        question_patterns = [
+            r'^(what|why|how|when|where|who)',
+            r'(explain|describe|tell me|show me)'
+        ]
+        
+        for pattern in question_patterns:
+            if re.search(pattern, query_lower):
+                return False
+        
+        # Default: use orchestrator for longer queries (likely tasks)
+        return len(query.split()) > 4
+    
     async def process_query(self, query: str):
         """Process a user query."""
         # Log the raw input
         self.debug_logger.log_user_input(query, query)  # No processing currently
         
+        # Check if this should be orchestrated
+        use_orchestrator = self.should_use_orchestrator(query)
+        
+        if use_orchestrator:
+            # Route through orchestrator for workflow execution
+            await self.process_with_orchestrator(query)
+            return
+        
+        # Otherwise use normal LLM conversation flow
+        await self.process_query_normal(query)
+    
+    async def process_query_normal(self, query: str):
+        """Process query through normal LLM conversation (non-orchestrated).
+        
+        Args:
+            query: User's query or question
+        """
         # Check token usage and warn if approaching limits
         usage = self.llm.get_token_usage()
         max_tokens = getattr(self.config, 'max_history', 8000)
