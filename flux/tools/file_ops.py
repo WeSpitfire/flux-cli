@@ -9,6 +9,7 @@ from flux.core.diff import DiffPreview
 from flux.core.syntax_checker import SyntaxChecker
 from flux.core.errors import file_not_found_error, search_not_found_error, syntax_error_response
 from flux.core.code_validator import CodeValidator
+from flux.core.smart_reader import SmartReader
 from rich.console import Console
 
 
@@ -68,13 +69,14 @@ def validate_file_path(path_str: str, cwd: Path, operation: str = "access") -> T
 
 
 class ReadFilesTool(Tool):
-    """Tool for reading file contents."""
+    """Tool for reading file contents with selective reading support."""
     
     def __init__(self, cwd: Path, workflow_enforcer=None, background_processor=None):
         """Initialize with current working directory."""
         self.cwd = cwd
         self.workflow = workflow_enforcer
         self.bg_processor = background_processor
+        self.smart_reader = SmartReader()
     
     @property
     def name(self) -> str:
@@ -82,10 +84,18 @@ class ReadFilesTool(Tool):
     
     @property
     def description(self) -> str:
-        return """Read file contents with line numbers.
+        return """Read file contents with optional selective reading to save tokens.
         
 CRITICAL: ALWAYS use this BEFORE any edit operation (100% of time, no exceptions).
-USAGE: Pass list of file paths. Read entire file or use line numbers to find exact content.
+
+READING MODES (choose based on need):
+1. Full read: Just pass 'paths' - use for small files or when you need everything
+2. Selective functions: Pass 'functions' list - read only specific functions (saves tokens!)
+3. Selective classes: Pass 'classes' list - read only specific classes (saves tokens!)
+4. Line range: Pass 'line_range' {start, end} - read specific lines only
+5. Summary: Pass 'summarize: true' - get file structure without full content
+
+TOKEN OPTIMIZATION: For large files (>200 lines), use selective reading!
 CACHING: Files are cached during workflow - reading same file twice uses cache.
 ON ERROR: Use list_files or find_files to discover correct paths."""
     
@@ -98,11 +108,47 @@ ON ERROR: Use list_files or find_files to discover correct paths."""
                 description="List of file paths to read (relative to current directory or absolute)",
                 required=True,
                 items={"type": "string"}
+            ),
+            ToolParameter(
+                name="functions",
+                type="array",
+                description="Optional: Read only specific functions (saves tokens for large files)",
+                required=False,
+                items={"type": "string"}
+            ),
+            ToolParameter(
+                name="classes",
+                type="array",
+                description="Optional: Read only specific classes (saves tokens for large files)",
+                required=False,
+                items={"type": "string"}
+            ),
+            ToolParameter(
+                name="line_range",
+                type="object",
+                description="Optional: Read only specific line range {start: int, end: int}",
+                required=False
+            ),
+            ToolParameter(
+                name="summarize",
+                type="boolean",
+                description="Optional: Get file summary (structure) instead of full content",
+                required=False
             )
     ]
     
-    async def execute(self, paths: List[str]) -> Dict[str, Any]:
-        """Read files and return their contents."""
+    async def execute(self, paths: List[str], functions: Optional[List[str]] = None, 
+                      classes: Optional[List[str]] = None, line_range: Optional[Dict] = None,
+                      summarize: bool = False) -> Dict[str, Any]:
+        """Read files and return their contents with optional selective reading.
+        
+        Args:
+            paths: List of file paths to read
+            functions: Optional list of function names to read (selective)
+            classes: Optional list of class names to read (selective)
+            line_range: Optional dict with 'start' and 'end' keys for line range
+            summarize: If True, return file summary instead of full content
+        """
         results = {}
         
         for path_str in paths:
@@ -137,42 +183,88 @@ ON ERROR: Use list_files or find_files to discover correct paths."""
                     results[path_str] = {"error": "Path is not a file"}
                     continue
                 
-                # Check background processor cache first (from smart preloading)
-                cached_content = None
-                cache_source = None
+                # Handle selective reading modes
+                content = None
+                mode = "full"
                 
-                if self.bg_processor:
-                    cached_content = self.bg_processor.get_cached_file(path)
-                    if cached_content:
-                        cache_source = 'background'
-                        # Record time saved (typical file read is ~5-10ms)
-                        self.bg_processor.record_time_saved(7)
+                # 1. Summarize mode - just structure
+                if summarize:
+                    content = self.smart_reader.summarize_file(path)
+                    mode = "summary"
                 
-                # Fall back to workflow cache
-                if cached_content is None and self.workflow:
-                    cached_content = self.workflow.get_cached_file(path)
-                    if cached_content:
-                        cache_source = 'workflow'
+                # 2. Line range mode
+                elif line_range:
+                    start = line_range.get('start', 1)
+                    end = line_range.get('end', 999999)
+                    content = self.smart_reader.read_lines(path, start, end)
+                    mode = f"lines {start}-{end}"
                 
-                if cached_content is not None:
-                    # Use cached content
-                    content = cached_content
-                    lines_count = content.count('\n')
-                else:
-                    # Read file with line numbers
-                    with open(path, 'r', encoding='utf-8') as f:
-                        file_lines = f.readlines()
-                        content = "".join([f"{i+1}|{line}" for i, line in enumerate(file_lines)])
-                        lines_count = len(file_lines)
+                # 3. Specific functions
+                elif functions:
+                    parts = []
+                    for func_name in functions:
+                        func_content = self.smart_reader.read_function(path, func_name)
+                        if func_content:
+                            parts.append(f"# Function: {func_name}\n{func_content}")
+                        else:
+                            parts.append(f"# Function '{func_name}' not found")
+                    content = "\n\n".join(parts)
+                    mode = f"functions: {', '.join(functions)}"
+                
+                # 4. Specific classes
+                elif classes:
+                    parts = []
+                    for class_name in classes:
+                        class_content = self.smart_reader.read_class(path, class_name)
+                        if class_content:
+                            parts.append(f"# Class: {class_name}\n{class_content}")
+                        else:
+                            parts.append(f"# Class '{class_name}' not found")
+                    content = "\n\n".join(parts)
+                    mode = f"classes: {', '.join(classes)}"
+                
+                # 5. Full file read (default)
+                if content is None:
+                    # Check background processor cache first (from smart preloading)
+                    cached_content = None
+                    cache_source = None
                     
-                    # Cache the content for reuse in this workflow
-                    if self.workflow:
-                        self.workflow.record_file_read(path, content)
+                    if self.bg_processor:
+                        cached_content = self.bg_processor.get_cached_file(path)
+                        if cached_content:
+                            cache_source = 'background'
+                            # Record time saved (typical file read is ~5-10ms)
+                            self.bg_processor.record_time_saved(7)
+                    
+                    # Fall back to workflow cache
+                    if cached_content is None and self.workflow:
+                        cached_content = self.workflow.get_cached_file(path)
+                        if cached_content:
+                            cache_source = 'workflow'
+                    
+                    if cached_content is not None:
+                        # Use cached content
+                        content = cached_content
+                        lines_count = content.count('\n')
+                    else:
+                        # Read file with line numbers
+                        with open(path, 'r', encoding='utf-8') as f:
+                            file_lines = f.readlines()
+                            content = "".join([f"{i+1}|{line}" for i, line in enumerate(file_lines)])
+                            lines_count = len(file_lines)
+                        
+                        # Cache the content for reuse in this workflow
+                        if self.workflow:
+                            self.workflow.record_file_read(path, content)
+                
+                # Count lines in content
+                lines_count = content.count('\n') if content else 0
                 
                 results[path_str] = {
                     "content": content,
                     "lines": lines_count,
-                    "cached": cached_content is not None
+                    "mode": mode,
+                    "cached": cached_content is not None if 'cached_content' in locals() else False
                 }
             except Exception as e:
                 results[path_str] = {"error": str(e)}
