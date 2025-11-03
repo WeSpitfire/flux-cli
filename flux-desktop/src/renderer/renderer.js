@@ -637,7 +637,8 @@ window.flux.onOutput((tabId, data) => {
   }
   
   // Add Flux response header if this is the start of output
-  if (!terminalData.state.hasFluxHeader) {
+  // Only add header once per command (when queue is empty and header not yet added)
+  if (!terminalData.state.hasFluxHeader && terminalData.state.outputQueue.length === 0) {
     const header = '\x1b[38;5;110m╭─ \x1b[1;38;5;153m⚡ Flux\x1b[0m\x1b[38;5;110m ───────────────────────────────────────────────\x1b[0m\r\n';
     terminalData.state.outputQueue.push(...header.split(''));
     terminalData.state.hasFluxHeader = true;

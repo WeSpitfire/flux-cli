@@ -294,6 +294,33 @@ class GitIntegration:
         except subprocess.TimeoutExpired:
             return []
     
+    def get_file_content_at_commit(self, file_path: str, commit: str = "HEAD") -> Optional[str]:
+        """Get file content at a specific commit.
+        
+        Args:
+            file_path: Path to the file
+            commit: Commit reference (default: HEAD)
+            
+        Returns:
+            File content as string, or None if not found
+        """
+        if not self.is_git_repo():
+            return None
+        
+        try:
+            result = subprocess.run(
+                ["git", "show", f"{commit}:{file_path}"],
+                cwd=self.cwd,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                return result.stdout
+            return None
+        except (subprocess.TimeoutExpired, Exception):
+            return None
+    
     def create_smart_commit_message(
         self,
         files: List[str],

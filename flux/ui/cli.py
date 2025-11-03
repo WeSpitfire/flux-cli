@@ -25,6 +25,11 @@ from flux.core.failure_tracker import FailureTracker
 from flux.core.background_processor import SmartBackgroundProcessor
 from flux.core.code_validator import CodeValidator
 from flux.core.debug_logger import DebugLogger
+from flux.core.state_tracker import ProjectStateTracker
+from flux.core.error_parser import ErrorParser
+from flux.core.test_runner import TestRunner, TestResult
+from flux.core.test_watcher import TestWatcher
+from flux.ui.nl_commands import get_parser
 from flux.llm.provider_factory import create_provider
 from flux.llm.prompts import SYSTEM_PROMPT
 from flux.tools.base import ToolRegistry
@@ -45,7 +50,9 @@ class CLI:
         """Initialize CLI."""
         self.config = config
         self.cwd = cwd
-        self.console = Console()
+        # Force UTF-8 encoding for console to handle emojis in piped stdout
+        import sys
+        self.console = Console(file=sys.stdout, force_terminal=False)
         self.llm = create_provider(config)
         
         # Detect project
@@ -92,6 +99,19 @@ class CLI:
         
         # Initialize debug logger (disabled by default)
         self.debug_logger = DebugLogger(config.flux_dir, enabled=False)
+        
+        # Initialize project state tracker for contextual awareness
+        self.state_tracker = ProjectStateTracker(cwd)
+        
+        # Initialize natural language command parser
+        self.nl_parser = get_parser()
+        
+        # Initialize error parser for smart error detection
+        self.error_parser = ErrorParser(cwd)
+        
+        # Initialize test runner and watcher
+        self.test_runner = TestRunner(cwd)
+        self.test_watcher: Optional[TestWatcher] = None
         
         # Initialize tool registry
         self.tools = ToolRegistry()
@@ -194,9 +214,10 @@ class CLI:
         """Run interactive REPL mode."""
         self.print_banner()
 
-        # Auto-build codebase graph in background
-        import asyncio
-        asyncio.create_task(self.build_codebase_graph())
+        # Codebase graph building disabled by default to prevent startup delays
+        # Users can manually trigger with /index command
+        # import asyncio
+        # asyncio.create_task(self.build_codebase_graph())
 
         # Multi-line compose state (disabled if not truly interactive)
         import sys
@@ -205,7 +226,8 @@ class CLI:
         self._compose_buffer = []  # type: list[str]
         self._last_input_time = 0.0  # Track timing for paste detection
 
-        self.console.print("[dim]Type 'exit' or 'quit' to exit[/dim]\n")
+        self.console.print("[dim]Type 'exit' or 'quit' to exit[/dim]")
+        self.console.print("[dim]Tip: Use /index to build codebase graph for intelligent suggestions[/dim]\n")
 
         while True:
             try:
@@ -215,6 +237,18 @@ class CLI:
                 # Decode newline placeholders from desktop app
                 if '<<<NEWLINE>>>' in query:
                     query = query.replace('<<<NEWLINE>>>', '\n')
+                
+                # Try to parse natural language commands
+                nl_result = self.nl_parser.parse(query)
+                if nl_result:
+                    command, args = nl_result
+                    # Show what we interpreted
+                    self.console.print(f"[dim]→ Interpreted as: {command} {args or ''}[/dim]")
+                    # Rewrite query as the slash command
+                    if args:
+                        query = f"{command} {args}"
+                    else:
+                        query = command
 
                 if query.lower() in ['exit', 'quit', 'q']:
                     self.console.print("\n[cyan]Goodbye![/cyan]")
@@ -243,9 +277,128 @@ class CLI:
                     )
                     continue
                 
+                if query.lower() == '/fix':
+                    # Check if there are any recent errors
+                    recent_commands = [c for c in self.state_tracker.command_history[-5:] if c.exit_code != 0]
+                    
+                    if not recent_commands:
+                        self.console.print("[yellow]No recent failed commands to fix.[/yellow]")
+                        continue
+                    
+                    # Get the most recent failed command
+                    last_failed = recent_commands[-1]
+                    
+                    # Parse errors
+                    parsed_errors = self.error_parser.parse_output(last_failed.output or "", last_failed.command)
+                    
+                    if not parsed_errors:
+                        self.console.print(f"[yellow]No parseable errors found in: {last_failed.command}[/yellow]")
+                        continue
+                    
+                    # Show errors
+                    self.console.print(f"\n[bold]🛠️  Analyzing Errors from:[/bold] [cyan]{last_failed.command}[/cyan]\n")
+                    
+                    for i, error in enumerate(parsed_errors[:3], 1):
+                        self.console.print(f"{i}. {self.error_parser.format_error(error)}\n")
+                    
+                    # Get fix context for first error
+                    first_error = parsed_errors[0]
+                    fix_context = self.error_parser.get_fix_context(first_error)
+                    
+                    if fix_context:
+                        # Automatically ask Flux to fix it
+                        fix_query = (
+                            f"Fix this error:\n\n"
+                            f"Error: {first_error.error_type}: {first_error.message}\n"
+                            f"File: {fix_context['file_path']}:{fix_context['line_number']}\n\n"
+                            f"Code context (lines {fix_context['start_line']}-{fix_context['end_line']}):\n"
+                            f"```\n{fix_context['code_context']}```\n\n"
+                            f"Please fix this error."
+                        )
+                        
+                        self.console.print("[dim]→ Asking Flux to fix the error...[/dim]\n")
+                        
+                        # Process as a query
+                        query = fix_query
+                        # Let it continue to the main processing logic
+                    else:
+                        self.console.print(f"[yellow]Could not get fix context for {first_error.file_path}[/yellow]")
+                        continue
+                
+                if query.lower() == '/state':
+                    summary = self.state_tracker.get_context_summary(max_age_minutes=30)
+                    suggestions = self.state_tracker.get_proactive_suggestions()
+                    
+                    self.console.print("\n[bold]🧠 Project State (Last 30 minutes):[/bold]\n")
+                    
+                    # Files
+                    if summary['files']['recently_modified']:
+                        self.console.print(f"[bold cyan]Recent Files:[/bold cyan]")
+                        for f in summary['files']['recently_modified'][:5]:
+                            self.console.print(f"  • {f}")
+                        self.console.print()
+                    
+                    if summary['files']['most_active']:
+                        self.console.print(f"[bold cyan]Hot Files:[/bold cyan]")
+                        for f, count in summary['files']['most_active']:
+                            self.console.print(f"  • {f} ({count} modifications)")
+                        self.console.print()
+                    
+                    # Git
+                    if summary['git']['is_repo']:
+                        self.console.print(f"[bold cyan]Git:[/bold cyan]")
+                        self.console.print(f"  Branch: {summary['git']['branch']}")
+                        if summary['git']['has_changes']:
+                            self.console.print(f"  Changes: {summary['git']['total_changes']} files (" +
+                                             f"{summary['git']['staged_files']} staged, " +
+                                             f"{summary['git']['modified_files']} modified, " +
+                                             f"{summary['git']['untracked_files']} untracked)")
+                        else:
+                            self.console.print("  Clean working directory")
+                        self.console.print()
+                    
+                    # Tests
+                    if summary['tests']['recent_count'] > 0:
+                        self.console.print(f"[bold cyan]Tests:[/bold cyan]")
+                        if summary['tests']['last_passed'] is not None:
+                            status = "[green]✓ Passed[/green]" if summary['tests']['last_passed'] else "[red]✗ Failed[/red]"
+                            self.console.print(f"  Last run: {status}")
+                        if summary['tests']['recent_failures']:
+                            self.console.print(f"  Failures:")
+                            for failure in summary['tests']['recent_failures'][:3]:
+                                self.console.print(f"    • {failure}")
+                        self.console.print()
+                    
+                    # Commands
+                    if summary['commands']['recent_count'] > 0:
+                        self.console.print(f"[bold cyan]Commands:[/bold cyan]")
+                        self.console.print(f"  Recent: {summary['commands']['recent_count']}")
+                        if summary['commands']['last_command']:
+                            self.console.print(f"  Last: {summary['commands']['last_command']}")
+                        if summary['commands']['failed_commands']:
+                            self.console.print(f"  Failed: {len(summary['commands']['failed_commands'])}")
+                        self.console.print()
+                    
+                    # Suggestions
+                    if suggestions:
+                        self.console.print(f"[bold yellow]💡 Suggestions:[/bold yellow]")
+                        for suggestion in suggestions:
+                            self.console.print(f"  {suggestion}")
+                        self.console.print()
+                    else:
+                        self.console.print("[dim]No suggestions - you're doing great! 🚀[/dim]\n")
+                    
+                    continue
+                
                 if query.lower() == '/help':
                     help_text = (
                         "[bold]Available Commands:[/bold]\n"
+                        "\n[bold magenta]✨ Natural Language:[/bold magenta]\n"
+                        "  Just ask naturally! Examples:\n"
+                        "  [dim]• 'show me what changed' → /diff[/dim]\n"
+                        "  [dim]• 'run the tests' → /test[/dim]\n"
+                        "  [dim]• 'undo that' → /undo[/dim]\n"
+                        "  [dim]• 'what's happening' → /state[/dim]\n"
                         "\n[bold cyan]General:[/bold cyan]\n"
                         "  [green]/help[/green] - Show this help message\n"
                         "  [green]/model[/green] - Show current provider and model\n"
@@ -264,10 +417,12 @@ class CLI:
                         "\n[bold cyan]Undo Commands:[/bold cyan]\n"
                         "  [green]/undo[/green] - Undo last file operation\n"
                         "  [green]/undo-history[/green] - Show undo history\n"
-                        "\n[bold cyan]Git Commands:[/bold cyan]\n"
+                        "\n[bold cyan]Git & Testing:[/bold cyan]\n"
                         "  [green]/diff[/green] - Show git diff of changes\n"
                         "  [green]/commit[/green] - Smart commit with generated message\n"
                         "  [green]/test[/green] - Run project tests\n"
+                        "  [green]/watch[/green] - Start test watch mode (auto-run on file changes)\n"
+                        "  [green]/watch-stop[/green] - Stop test watch mode\n"
                         "\n[bold cyan]Workflow & Approval:[/bold cyan]\n"
                         "  [green]/workflow[/green] - Show workflow status\n"
                         "  [green]/approval[/green] - Show approval statistics\n"
@@ -288,6 +443,7 @@ class CLI:
                         "  [green]/performance[/green] (or [green]/perf[/green]) - Show background processing stats\n"
                         "\n[bold cyan]Code Quality:[/bold cyan]\n"
                         "  [green]/validate[/green] - Validate modified files for errors\n"
+                        "  [green]/fix[/green] - Auto-detect and fix recent errors\n"
                         "\n[bold cyan]Debug & Diagnostics:[/bold cyan]\n"
                         "  [green]/debug-on[/green] - Enable debug logging\n"
                         "  [green]/debug-off[/green] - Disable debug logging\n"
@@ -295,7 +451,8 @@ class CLI:
                         "  [green]/debug-analyze <issue>[/green] - Analyze logs for an issue\n"
                         "  [green]/inspect[/green] - Inspect current conversation state\n"
                     )
-                    self.console.print(Panel(help_text, title="\ud83d\udcd6 Help", border_style="blue"))
+                    # Use plain text title to avoid Unicode issues in piped output
+                    self.console.print(Panel(help_text, title="Help", border_style="blue"))
                     continue
 
                 
@@ -441,6 +598,14 @@ class CLI:
 
                 if query.lower() == '/test':
                     await self.run_tests()
+                    continue
+                
+                if query.lower() == '/watch':
+                    await self.start_watch_mode()
+                    continue
+                
+                if query.lower() == '/watch-stop':
+                    self.stop_watch_mode()
                     continue
 
                 # Codebase intelligence commands
@@ -624,6 +789,14 @@ class CLI:
         max_tokens = getattr(self.config, 'max_history', 8000)
         usage_percent = (usage['total_tokens'] / max_tokens) * 100 if max_tokens > 0 else 0
         
+        # Always show compact token status
+        if usage['total_tokens'] > 0:
+            color = "red" if usage_percent > 90 else "yellow" if usage_percent > 80 else "dim cyan"
+            self.console.print(
+                f"[{color}]📊 Context: {usage['total_tokens']:,}/{max_tokens:,} tokens ({usage_percent:.0f}%) | "
+                f"Cost: ${usage['estimated_cost']:.4f}[/{color}]"
+            )
+        
         if usage_percent > 90:
             self.console.print("[bold red]⚠ WARNING: Conversation is at 90%+ of token limit![/bold red]")
             self.console.print("[yellow]Strongly recommend using /clear to avoid rate limit errors[/yellow]\n")
@@ -639,8 +812,13 @@ class CLI:
         response_text = ""
         tool_uses = []
         
-        # Build system prompt with project context and intelligent suggestions
+        # Build system prompt with project context, intelligent suggestions, and state
         system_prompt = self._build_system_prompt(query=query)
+        
+        # Add contextual state to prompt
+        state_context = self.state_tracker.get_contextual_prompt_addon()
+        if state_context:
+            system_prompt += state_context
         
         # Log system prompt and context
         self.debug_logger.log_system_prompt(system_prompt)
@@ -670,6 +848,18 @@ class CLI:
         
         # Log LLM response
         self.debug_logger.log_llm_response(response_text, tool_uses)
+        
+        # Track conversation in state tracker
+        files_mentioned = []
+        for tool_use in tool_uses:
+            if 'path' in tool_use['input']:
+                files_mentioned.append(tool_use['input']['path'])
+            elif 'file_path' in tool_use['input']:
+                files_mentioned.append(tool_use['input']['file_path'])
+            elif 'paths' in tool_use['input']:
+                files_mentioned.extend(tool_use['input']['paths'])
+        tools_used = [t['name'] for t in tool_uses]
+        self.state_tracker.track_conversation(query, response_text, files_mentioned, tools_used)
         
         # If there was text, add newline
         if response_text:
@@ -843,9 +1033,49 @@ class CLI:
                 file_path = tool_input.get('file_path') or tool_input.get('path')
                 if file_path:
                     self.workspace.track_file_access(file_path)
+                    
+                    # Track in state tracker too
+                    if tool_name in ['write_file', 'edit_file', 'ast_edit']:
+                        operation = 'write' if tool_name == 'write_file' else 'edit'
+                        self.state_tracker.track_file_modification(file_path, operation)
             elif tool_name == 'run_command':
                 command = tool_input.get('command', '')
                 self.workspace.track_command(command)
+                
+                # Track command execution in state tracker
+                exit_code = result.get('exit_code', 0) if isinstance(result, dict) else 0
+                output_str = result.get('output', '') if isinstance(result, dict) else str(result)
+                self.state_tracker.track_command(command, exit_code, output_str)
+                
+                # Parse errors from command output automatically
+                if exit_code != 0 and isinstance(result, dict) and 'output' in result:
+                    parsed_errors = self.error_parser.parse_output(output_str, command)
+                    if parsed_errors:
+                        # Add parsed errors to result for LLM context
+                        result['parsed_errors'] = [e.to_dict() for e in parsed_errors]
+                        
+                        # Show parsed errors to user
+                        self.console.print("\n[bold yellow]🔍 Detected Errors:[/bold yellow]")
+                        for i, error in enumerate(parsed_errors[:3], 1):  # Show top 3
+                            self.console.print(f"\n{i}. {self.error_parser.format_error(error)}")
+                        
+                        if len(parsed_errors) > 3:
+                            self.console.print(f"\n[dim]... and {len(parsed_errors) - 3} more errors[/dim]")
+                        
+                        self.console.print()  # Add spacing
+                
+                # Detect test commands and track results
+                test_keywords = ['pytest', 'test', 'npm test', 'jest', 'mocha', 'cargo test', 'go test']
+                if any(kw in command.lower() for kw in test_keywords):
+                    passed = exit_code == 0
+                    # Extract failures from output (simplified)
+                    failures = []
+                    if not passed and isinstance(result, dict) and 'output' in result:
+                        # Try to extract test names from output
+                        for line in result['output'].split('\n'):
+                            if 'FAILED' in line or 'failed' in line.lower():
+                                failures.append(line.strip()[:100])
+                    self.state_tracker.track_test_result(command, passed, failures[:5])
             
             # Add result to conversation
             self.llm.add_tool_result(tool_id, result)
@@ -996,7 +1226,9 @@ class CLI:
             )
     
     async def show_diff(self):
-        """Show git diff of current changes."""
+        """Show git diff using visual diff viewer."""
+        from flux.ui.diff_viewer import create_diff_viewer_from_git
+        
         status = self.git.get_status()
         
         if not status.is_repo:
@@ -1007,47 +1239,14 @@ class CLI:
             self.console.print("[green]No changes to show[/green]")
             return
         
-        # Show status summary
+        # Show branch info
         self.console.print(f"\n[bold]Branch:[/bold] {status.branch}")
-        self.console.print(f"[bold]Changes:[/bold] {status.total_changes} files\n")
         
-        if status.staged_files:
-            self.console.print(f"[green]Staged ({len(status.staged_files)}):[/green]")
-            for f in status.staged_files[:10]:
-                self.console.print(f"  + {f}")
-            if len(status.staged_files) > 10:
-                self.console.print(f"  ... and {len(status.staged_files) - 10} more")
-            self.console.print()
+        # Create and populate diff viewer
+        viewer = create_diff_viewer_from_git(self.console, self.git, self.cwd)
         
-        if status.modified_files:
-            self.console.print(f"[yellow]Modified ({len(status.modified_files)}):[/yellow]")
-            for f in status.modified_files[:10]:
-                self.console.print(f"  M {f}")
-            if len(status.modified_files) > 10:
-                self.console.print(f"  ... and {len(status.modified_files) - 10} more")
-            self.console.print()
-        
-        if status.untracked_files:
-            self.console.print(f"[dim]Untracked ({len(status.untracked_files)}):[/dim]")
-            for f in status.untracked_files[:10]:
-                self.console.print(f"  ? {f}")
-            if len(status.untracked_files) > 10:
-                self.console.print(f"  ... and {len(status.untracked_files) - 10} more")
-            self.console.print()
-        
-        # Show diff
-        self.console.print("[bold]Diff:[/bold]")
-        diff = self.git.get_diff()
-        if diff:
-            # Limit diff output
-            lines = diff.split('\n')
-            if len(lines) > 50:
-                self.console.print("\n".join(lines[:50]))
-                self.console.print(f"\n[dim]... {len(lines) - 50} more lines ...[/dim]")
-            else:
-                self.console.print(diff)
-        else:
-            self.console.print("[dim]No unstaged changes[/dim]")
+        # Display the visual diff
+        viewer.display_summary()
     
     async def smart_commit(self, query: str):
         """Create a smart commit."""
@@ -1095,68 +1294,114 @@ class CLI:
         else:
             self.console.print(f"[red]✗ {msg}[/red]")
     
-    async def run_tests(self):
-        """Run project tests."""
-        # Detect test command based on project type
-        test_cmd = None
+    async def run_tests(self, file_filter: Optional[str] = None):
+        """Run project tests using the smart test runner."""
+        self.console.print(f"\n[bold]Running tests...[/bold] (Framework: {self.test_runner.framework.value})\n")
         
-        if self.project_info:
-            if self.project_info.project_type == "python":
-                # Check for pytest, unittest
-                if (self.cwd / "pytest.ini").exists() or "pytest" in str(self.project_info.dependencies):
-                    test_cmd = "pytest"
-                else:
-                    test_cmd = "python -m unittest discover"
-            
-            elif self.project_info.project_type in ["node", "javascript", "typescript"]:
-                # Check package.json for test script
-                import json
-                package_json = self.cwd / "package.json"
-                if package_json.exists():
-                    try:
-                        with open(package_json) as f:
-                            pkg = json.load(f)
-                            if "scripts" in pkg and "test" in pkg["scripts"]:
-                                test_cmd = "npm test"
-                    except:
-                        pass
+        # Run tests
+        import asyncio
+        result = await asyncio.to_thread(self.test_runner.run_tests, file_filter)
         
-        if not test_cmd:
-            self.console.print("[yellow]No test command detected. Common options:[/yellow]")
-            self.console.print("  - pytest")
-            self.console.print("  - npm test")
-            self.console.print("  - python -m unittest")
+        # Display results
+        self._display_test_result(result)
+        
+        # Update state tracker
+        if result.status.value == "failed":
+            self.state_tracker.record_test_failure([
+                {"name": f.test_name, "error": f.error_message}
+                for f in result.failures
+            ])
+        else:
+            self.state_tracker.record_test_success()
+    
+    def _display_test_result(self, result: TestResult):
+        """Display test results in a beautiful format."""
+        # Summary panel
+        status_icon = "✓" if result.success else "✗"
+        status_color = "green" if result.success else "red"
+        
+        summary = (
+            f"[bold]{result.framework.value.upper()} Test Results[/bold]\n\n"
+            f"Tests: [{status_color}]{result.total_tests}[/{status_color}]\n"
+            f"Passed: [green]{result.passed}[/green]\n"
+            f"Failed: [red]{result.failed}[/red]\n"
+        )
+        
+        if result.skipped > 0:
+            summary += f"Skipped: [yellow]{result.skipped}[/yellow]\n"
+        
+        if result.duration > 0:
+            summary += f"Duration: [cyan]{result.duration:.2f}s[/cyan]\n"
+        
+        if result.total_tests > 0:
+            summary += f"Pass Rate: [cyan]{result.pass_rate:.1f}%[/cyan]"
+        
+        self.console.print(Panel(
+            summary,
+            title=f"{status_icon} Test Results",
+            border_style=status_color
+        ))
+        
+        # Show failures if any
+        if result.failures:
+            self.console.print("\n[bold red]Failures:[/bold red]\n")
+            for failure in result.failures:
+                self.console.print(f"  ❌ {failure.test_name}")
+                if failure.file_path:
+                    self.console.print(f"     File: [cyan]{failure.file_path}[/cyan]")
+                if failure.error_message:
+                    # Truncate long error messages
+                    error = failure.error_message[:200]
+                    if len(failure.error_message) > 200:
+                        error += "..."
+                    self.console.print(f"     Error: [dim]{error}[/dim]")
+                self.console.print()
+    
+    async def start_watch_mode(self):
+        """Start test watch mode."""
+        if self.test_watcher and self.test_watcher.is_running:
+            self.console.print("[yellow]Watch mode already running[/yellow]")
             return
         
-        self.console.print(f"[bold]Running:[/bold] {test_cmd}\n")
+        self.console.print("\n[bold cyan]Starting test watch mode...[/bold cyan]")
+        self.console.print(f"Framework: [green]{self.test_runner.framework.value}[/green]")
+        self.console.print(f"Watching: [cyan]{self.cwd}[/cyan]")
+        self.console.print("\n[dim]Tests will run automatically when files change[/dim]")
+        self.console.print("[dim]Press Ctrl+C to stop[/dim]\n")
         
-        # Run the command
-        import subprocess
+        # Create watcher with callback
+        self.test_watcher = TestWatcher(
+            self.test_runner,
+            on_test_complete=self._on_watch_test_complete
+        )
+        
+        await self.test_watcher.start()
+        
+        # Run tests once on start
+        self.console.print("[dim]Running initial test suite...[/dim]\n")
+        result = await asyncio.to_thread(self.test_runner.run_tests)
+        self._display_test_result(result)
+        
         try:
-            result = subprocess.run(
-                test_cmd,
-                shell=True,
-                cwd=self.cwd,
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            
-            # Show output
-            if result.stdout:
-                self.console.print(result.stdout)
-            if result.stderr:
-                self.console.print(f"[red]{result.stderr}[/red]")
-            
-            if result.returncode == 0:
-                self.console.print(f"\n[green]✓ Tests passed[/green]")
-            else:
-                self.console.print(f"\n[red]✗ Tests failed (exit code: {result.returncode})[/red]")
-                
-        except subprocess.TimeoutExpired:
-            self.console.print("[red]✗ Tests timed out (60s limit)[/red]")
-        except Exception as e:
-            self.console.print(f"[red]✗ Error running tests: {e}[/red]")
+            # Keep running until interrupted
+            while self.test_watcher.is_running:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            self.console.print("\n[yellow]Stopping watch mode...[/yellow]")
+            self.stop_watch_mode()
+    
+    def stop_watch_mode(self):
+        """Stop test watch mode."""
+        if self.test_watcher:
+            self.test_watcher.stop()
+            self.test_watcher = None
+            self.console.print("[green]✓ Watch mode stopped[/green]")
+    
+    def _on_watch_test_complete(self, result: TestResult):
+        """Callback when watch mode tests complete."""
+        self.console.print("\n" + "─" * 80 + "\n")
+        self.console.print("[bold]Tests completed[/bold]")
+        self._display_test_result(result)
     
     async def show_related_files(self, file_or_query: str):
         """Show files related to a file or query."""

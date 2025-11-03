@@ -1,6 +1,17 @@
 """Main entry point for Flux CLI."""
 
 import sys
+import os
+import warnings
+
+# Suppress SyntaxWarnings (from regex patterns in dependencies)
+warnings.filterwarnings('ignore', category=SyntaxWarning)
+
+# Force UTF-8 encoding for stdout/stderr to handle emojis in piped output
+if sys.stdout.encoding != 'utf-8':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 import asyncio
 import argparse
 from pathlib import Path
