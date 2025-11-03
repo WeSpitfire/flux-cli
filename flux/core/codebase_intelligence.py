@@ -74,25 +74,28 @@ class CodebaseGraph:
         """
         # Try to load from cache if enabled
         if use_cache and self._load_from_cache():
-            print(f"✅ Loaded cached graph: {len(self.files)} files, {len(self.entities)} entities")
+            # Print to stderr so it doesn't interfere with JSON output
+            import sys
+            print(f"✅ Loaded cached graph: {len(self.files)} files, {len(self.entities)} entities", file=sys.stderr)
             return
         
-        print(f"🔍 Building codebase graph from {self.root_path}...")
+        import sys
+        print(f"🔍 Building codebase graph from {self.root_path}...", file=sys.stderr)
         
         # Find all code files
         code_files = self._find_code_files(max_files)
-        print(f"   Found {len(code_files)} code files")
+        print(f"   Found {len(code_files)} code files", file=sys.stderr)
         
         # Parse each file
         for i, file_path in enumerate(code_files):
             if i % 50 == 0:
-                print(f"   Parsing... {i}/{len(code_files)}")
+                print(f"   Parsing... {i}/{len(code_files)}", file=sys.stderr)
             self._parse_file(file_path)
         
         # Build dependency graph
         self._build_dependency_graph()
         
-        print(f"✅ Graph built: {len(self.files)} files, {len(self.entities)} entities")
+        print(f"✅ Graph built: {len(self.files)} files, {len(self.entities)} entities", file=sys.stderr)
         
         # Save to cache
         self._save_to_cache()
@@ -502,10 +505,12 @@ class CodebaseGraph:
             with open(self.cache_file, 'w') as f:
                 json.dump(cache_data, f, indent=2)
             
-            print(f"   💾 Cache saved to {self.cache_file}")
+            import sys
+            print(f"   💾 Cache saved to {self.cache_file}", file=sys.stderr)
         
         except Exception as e:
-            print(f"   ⚠️ Warning: Could not save cache: {e}")
+            import sys
+            print(f"   ⚠️ Warning: Could not save cache: {e}", file=sys.stderr)
     
     def _load_from_cache(self) -> bool:
         """Load the codebase graph from cache if valid.
@@ -523,7 +528,8 @@ class CodebaseGraph:
             
             # Verify cache version
             if cache_data.get('version') != self.CACHE_VERSION:
-                print("   ⚠️ Cache version mismatch, rebuilding...")
+                import sys
+                print("   ⚠️ Cache version mismatch, rebuilding...", file=sys.stderr)
                 return False
             
             # Verify root path matches
@@ -536,7 +542,8 @@ class CodebaseGraph:
             
             # Verify file tree hasn't changed
             if cache_data.get('tree_hash') != current_hash:
-                print("   ⚠️ Codebase changed, rebuilding graph...")
+                import sys
+                print("   ⚠️ Codebase changed, rebuilding graph...", file=sys.stderr)
                 return False
             
             # Deserialize files
@@ -585,7 +592,8 @@ class CodebaseGraph:
             return True
         
         except Exception as e:
-            print(f"   ⚠️ Could not load cache: {e}")
+            import sys
+            print(f"   ⚠️ Could not load cache: {e}", file=sys.stderr)
             return False
 
 
