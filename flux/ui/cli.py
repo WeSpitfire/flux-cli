@@ -24,6 +24,7 @@ from flux.core.workspace import Workspace, TaskPriority, TaskStatus
 from flux.core.failure_tracker import FailureTracker
 from flux.core.background_processor import SmartBackgroundProcessor
 from flux.core.code_validator import CodeValidator
+from flux.core.debug_logger import DebugLogger
 from flux.llm.provider_factory import create_provider
 from flux.llm.prompts import SYSTEM_PROMPT
 from flux.tools.base import ToolRegistry
@@ -88,6 +89,9 @@ class CLI:
         
         # Initialize code validator for self-checking
         self.code_validator = CodeValidator(cwd)
+        
+        # Initialize debug logger (disabled by default)
+        self.debug_logger = DebugLogger(config.flux_dir, enabled=False)
         
         # Initialize tool registry
         self.tools = ToolRegistry()
@@ -194,12 +198,17 @@ class CLI:
         import asyncio
         asyncio.create_task(self.build_codebase_graph())
 
+        # Multi-line compose state
+        self._compose_mode = False
+        self._compose_buffer = []  # type: list[str]
+
         self.console.print("[dim]Type 'exit' or 'quit' to exit[/dim]\n")
 
         while True:
             try:
                 # Get user input
-                query = Prompt.ask("\n[bold green]You[/bold green]")
+                prompt_label = "You (paste)" if getattr(self, "_compose_mode", False) else "You"
+                query = Prompt.ask(f"\n[bold green]{prompt_label}[/bold green]")
 
                 if query.lower() in ['exit', 'quit', 'q']:
                     self.console.print("\n[cyan]Goodbye![/cyan]")
@@ -208,6 +217,11 @@ class CLI:
                 if query.lower() == '/clear':
                     self.llm.clear_history()
                     self.console.print("[green]✓ Conversation history cleared[/green]")
+                    # Clear compose buffer too
+                    if getattr(self, "_compose_mode", False):
+                        self._compose_mode = False
+                        self._compose_buffer = []
+                        self.console.print("[dim]Paste mode cancelled[/dim]")
                     continue
                 
                 if query.lower() == '/history':
@@ -231,6 +245,11 @@ class CLI:
                         "  [green]/model[/green] - Show current provider and model\n"
                         "  [green]/history[/green] - Show conversation history summary\n"
                         "  [green]/clear[/green] - Clear conversation history\n"
+                        "\n[bold cyan]Multi-line & Paste Mode:[/bold cyan]\n"
+                        "  [green]/paste[/green] or [green]```[/green] - Start paste mode\n"
+                        "  [green]/end[/green] or [green]/send[/green] or [green]```[/green] - Finish and send\n"
+                        "  [green]/discard[/green] - Cancel paste mode and discard\n"
+                        "  Tip: Paste large tasks as a single block; Flux auto-detects lists and will enter paste mode.\n"
                         "\n[bold cyan]Memory Commands:[/bold cyan]\n"
                         "  [green]/task <description>[/green] - Set current task\n"
                         "  [green]/memory[/green] - Show project memory\n"
@@ -266,6 +285,12 @@ class CLI:
                     )
                     self.console.print(Panel(help_text, title="\ud83d\udcd6 Help", border_style="blue"))
                     continue
+                        "  [green]/debug[/green] - Show debug session summary\n"
+                        "  [green]/debug-analyze <issue>[/green] - Analyze logs for an issue\n"
+                        "  [green]/inspect[/green] - Inspect current conversation state\n"
+                    )
+                    self.console.print(Panel(help_text, title="\ud83d\udcd6 Help", border_style="blue"))
+                    continue
 
                 
                 if query.lower() == '/model':
@@ -276,7 +301,47 @@ class CLI:
                     )
                     continue
                 
+                # Paste mode handling
+                if getattr(self, "_compose_mode", False):
+                    # End conditions
+                    if query.strip() in ('/end', '/send', '```'):
+                        combined = "\n".join(self._compose_buffer).strip()
+                        self._compose_mode = False
+                        self._compose_buffer = []
+                        if not combined:
+                            self.console.print("[dim]Nothing to send[/dim]")
+                            continue
+                        # Replace query with combined
+                        query = combined
+                        self.console.print("[dim]✓ Sent composed input[/dim]")
+                    elif query.strip() == '/discard':
+                        self._compose_mode = False
+                        self._compose_buffer = []
+                        self.console.print("[yellow]✗ Discarded composed input[/yellow]")
+                        continue
+                    else:
+                        # Accumulate and prompt for more
+                        self._compose_buffer.append(query)
+                        self.console.print(f"[dim]… composing ({len(self._compose_buffer)} lines). Type /end to send, /discard to cancel[/dim]")
+                        continue
+
+                # Commands to start compose mode
+                if query.strip() in ('/paste', '```'):
+                    self._compose_mode = True
+                    self._compose_buffer = []
+                    self.console.print("[cyan]Paste mode ON[/cyan] [dim](finish with /end or ```)[/dim]")
+                    continue
+
+                # Skip empty input
                 if not query.strip():
+                    continue
+
+                # Auto-detect list-style multi-line tasks and enter compose mode
+                import re
+                if re.match(r"^(\s*\d+\.|\s*[-*])\s+", query) or (query.rstrip().endswith(':') and len(query) > 10):
+                    self._compose_mode = True
+                    self._compose_buffer = [query]
+                    self.console.print("[cyan]Detected multi-line task. Paste mode ON[/cyan] [dim](finish with /end or ```)[/dim]")
                     continue
 
                 # Handle special memory commands
@@ -434,6 +499,40 @@ class CLI:
                     report = self.code_validator.get_validation_report(result)
                     self.console.print(report)
                     continue
+                
+                # Debug commands
+                if query.lower() == '/debug':
+                    if self.debug_logger.enabled:
+                        summary = self.debug_logger.get_summary()
+                        self.console.print(Panel(summary, title="🐛 Debug Info", border_style="yellow"))
+                    else:
+                        self.console.print("[yellow]Debug mode is disabled. Enable with /debug-on[/yellow]")
+                    continue
+                
+                if query.lower() == '/debug-on':
+                    self.debug_logger.enable()
+                    self.console.print("[green]✓ Debug logging enabled[/green]")
+                    self.console.print(f"[dim]Logs will be saved to: {self.debug_logger.log_file}[/dim]")
+                    continue
+                
+                if query.lower() == '/debug-off':
+                    self.debug_logger.disable()
+                    self.console.print("[green]✓ Debug logging disabled[/green]")
+                    continue
+                
+                if query.lower().startswith('/debug-analyze '):
+                    issue = query[15:].strip()
+                    if not issue:
+                        self.console.print("[red]Please provide an issue description[/red]")
+                        continue
+                    analysis = self.debug_logger.analyze_issue(issue)
+                    self.console.print(Panel(analysis, title="🔍 Analysis", border_style="cyan"))
+                    continue
+                
+                if query.lower() == '/inspect':
+                    # Show current conversation state
+                    await self.inspect_state()
+                    continue
 
                 if query.lower() == '/help':
                     self.console.print(
@@ -497,6 +596,9 @@ class CLI:
     
     async def process_query(self, query: str):
         """Process a user query."""
+        # Log the raw input
+        self.debug_logger.log_user_input(query, query)  # No processing currently
+        
         # Check token usage and warn if approaching limits
         usage = self.llm.get_token_usage()
         max_tokens = getattr(self.config, 'max_history', 8000)
@@ -520,6 +622,10 @@ class CLI:
         # Build system prompt with project context and intelligent suggestions
         system_prompt = self._build_system_prompt(query=query)
         
+        # Log system prompt and context
+        self.debug_logger.log_system_prompt(system_prompt)
+        self.debug_logger.log_conversation_history(self.llm.conversation_history)
+        
         # Get LLM response
         async for event in self.llm.send_message(
             message=query,
@@ -541,6 +647,9 @@ class CLI:
             
             elif event["type"] == "tool_use":
                 tool_uses.append(event)
+        
+        # Log LLM response
+        self.debug_logger.log_llm_response(response_text, tool_uses)
         
         # If there was text, add newline
         if response_text:
@@ -595,6 +704,10 @@ class CLI:
         # Execute tool
         try:
             result = await self.tools.execute(tool_name, **tool_input)
+            success = not (isinstance(result, dict) and "error" in result)
+            
+            # Log tool execution
+            self.debug_logger.log_tool_call(tool_name, tool_input, result, success)
             
             # SMART RETRY: If edit_file fails with SEARCH_TEXT_NOT_FOUND, auto-read and provide context
             if (tool_name == "edit_file" and 
@@ -1610,6 +1723,80 @@ class CLI:
                     self.console.print(f"  Current Task: [yellow]{task.title}[/yellow]")
         
         self.console.print("\n" + "=" * 60 + "\n")
+    
+    async def inspect_state(self):
+        """Inspect current conversation and context state."""
+        self.console.print("\n[bold]🔍 Conversation State Inspector[/bold]")
+        self.console.print("=" * 70)
+        
+        # Conversation history stats
+        history = self.llm.conversation_history
+        self.console.print(f"\n[bold cyan]Conversation History:[/bold cyan]")
+        self.console.print(f"  Total messages: [cyan]{len(history)}[/cyan]")
+        
+        # Count by role
+        user_msgs = sum(1 for m in history if m.get('role') == 'user')
+        assistant_msgs = sum(1 for m in history if m.get('role') == 'assistant')
+        tool_msgs = sum(1 for m in history if m.get('role') == 'tool')
+        
+        self.console.print(f"  User messages: [green]{user_msgs}[/green]")
+        self.console.print(f"  Assistant messages: [yellow]{assistant_msgs}[/yellow]")
+        self.console.print(f"  Tool messages: [blue]{tool_msgs}[/blue]")
+        
+        # Estimate token usage
+        total_chars = sum(len(str(m.get('content', ''))) for m in history)
+        est_tokens = total_chars // 4
+        self.console.print(f"  Estimated tokens: [cyan]~{est_tokens:,}[/cyan]")
+        
+        # Recent messages
+        self.console.print(f"\n[bold cyan]Last 5 Messages:[/bold cyan]")
+        for i, msg in enumerate(history[-5:], 1):
+            role = msg.get('role', 'unknown')
+            content = str(msg.get('content', ''))[:100]
+            has_tools = 'tool_calls' in msg
+            
+            role_color = {'user': 'green', 'assistant': 'yellow', 'tool': 'blue'}.get(role, 'white')
+            self.console.print(f"  {i}. [{role_color}]{role}[/{role_color}]: {content}{'...' if len(str(msg.get('content', ''))) > 100 else ''}")
+            if has_tools:
+                self.console.print(f"     [dim](includes tool calls)[/dim]")
+        
+        # Current context
+        self.console.print(f"\n[bold cyan]Current Context:[/bold cyan]")
+        if self.memory.state.current_task:
+            self.console.print(f"  Task: [yellow]{self.memory.state.current_task}[/yellow]")
+        else:
+            self.console.print(f"  Task: [dim]None[/dim]")
+        
+        # Modified files
+        modified = self.workflow.get_modified_files()
+        self.console.print(f"  Modified files: [cyan]{len(modified)}[/cyan]")
+        if modified:
+            for f in modified[:5]:
+                self.console.print(f"    - {f}")
+            if len(modified) > 5:
+                self.console.print(f"    ... and {len(modified) - 5} more")
+        
+        # Failure tracker state
+        if self.failure_tracker.failures:
+            self.console.print(f"\n[bold yellow]⚠️  Active Failures:[/bold yellow]")
+            for tool_name, count in self.failure_tracker.failure_count_by_tool.items():
+                self.console.print(f"  - {tool_name}: {count} failures")
+        
+        # Token usage from LLM
+        usage = self.llm.get_token_usage()
+        self.console.print(f"\n[bold cyan]Token Usage:[/bold cyan]")
+        self.console.print(f"  Input: [cyan]{usage['input_tokens']:,}[/cyan]")
+        self.console.print(f"  Output: [cyan]{usage['output_tokens']:,}[/cyan]")
+        self.console.print(f"  Total: [cyan]{usage['total_tokens']:,}[/cyan]")
+        self.console.print(f"  Cost: [green]${usage['estimated_cost']:.4f}[/green]")
+        
+        max_history = getattr(self.config, 'max_history', 8000)
+        usage_percent = (usage['total_tokens'] / max_history) * 100 if max_history > 0 else 0
+        
+        if usage_percent > 80:
+            self.console.print(f"  [yellow]⚠️  At {usage_percent:.0f}% of limit[/yellow]")
+        
+        self.console.print("\n" + "=" * 70 + "\n")
     
     async def show_project_stats(self):
         """Show project-level statistics."""
