@@ -30,6 +30,7 @@ from flux.core.error_parser import ErrorParser
 from flux.core.test_runner import TestRunner, TestResult
 from flux.core.test_watcher import TestWatcher
 from flux.core.auto_fixer import AutoFixer
+from flux.core.auto_fix_watcher import AutoFixWatcher, AutoFixEvent
 from flux.ui.nl_commands import get_parser
 from flux.llm.provider_factory import create_provider
 from flux.llm.prompts import SYSTEM_PROMPT
@@ -116,6 +117,7 @@ class CLI:
         
         # Initialize auto-fixer (enabled by default)
         self.auto_fixer = AutoFixer(cwd, enabled=True)
+        self.auto_fix_watcher: Optional[AutoFixWatcher] = None
         
         # Initialize tool registry
         self.tools = ToolRegistry()
@@ -760,6 +762,39 @@ class CLI:
                     else:
                         self.console.print("[dim]No auto-fixes applied yet[/dim]")
                     continue
+                
+                if query.lower() == '/autofix-watch':
+                    # Start auto-fix watching
+                    await self.start_autofix_watch()
+                    continue
+                
+                if query.lower() == '/autofix-watch-stop':
+                    # Stop auto-fix watching
+                    self.stop_autofix_watch()
+                    continue
+                
+                if query.lower() == '/autofix-stats':
+                    # Show auto-fix watch statistics
+                    if self.auto_fix_watcher:
+                        stats = self.auto_fix_watcher.get_stats()
+                        stats_text = (
+                            f"Running: [{'green' if stats['running'] else 'yellow'}]{stats['running']}[/{'green' if stats['running'] else 'yellow'}]\n"
+                            f"Total fixes: [cyan]{stats['total_fixes']}[/cyan]\n"
+                            f"Files fixed: [cyan]{stats['files_fixed']}[/cyan]\n"
+                        )
+                        if stats['fix_types']:
+                            stats_text += f"\nFix types: {', '.join(stats['fix_types'])}\n"
+                        
+                        if stats.get('recent_events'):
+                            stats_text += f"\n[bold]Recent fixes:[/bold]\n"
+                            for event in stats['recent_events'][-5:]:
+                                rel_path = event.file_path.relative_to(self.cwd) if event.file_path.is_relative_to(self.cwd) else event.file_path
+                                stats_text += f"  • {rel_path} - {event.fixes_applied} fix(es)\n"
+                        
+                        self.console.print(Panel(stats_text, title="📊 Auto-Fix Watch Stats", border_style="blue"))
+                    else:
+                        self.console.print("[yellow]Auto-fix watch not started. Use /autofix-watch to start.[/yellow]")
+                    continue
 
                 if query.lower() == '/help':
                     self.console.print(
@@ -797,6 +832,9 @@ class CLI:
                         "  /autofix - Run auto-fix on project files\n"
                         "  /autofix-on - Enable auto-fix mode\n"
                         "  /autofix-off - Disable auto-fix mode\n"
+                        "  /autofix-watch - Start watching files (auto-fix on save)\n"
+                        "  /autofix-watch-stop - Stop watching files\n"
+                        "  /autofix-stats - Show watch mode statistics\n"
                         "  /autofix-undo - Undo last auto-fix\n"
                         "  /autofix-summary - Show auto-fix statistics\n"
                         "\n[bold]General:[/bold]\n"
@@ -2192,3 +2230,53 @@ class CLI:
         if total_fixes > 0:
             self.console.print("\n[dim]Use /autofix-undo to undo last fix[/dim]")
             self.console.print("[dim]Use /autofix-summary to see detailed statistics[/dim]")
+    
+    async def start_autofix_watch(self):
+        """Start auto-fix watch mode."""
+        if self.auto_fix_watcher and self.auto_fix_watcher.is_running:
+            self.console.print("[yellow]Auto-fix watch already running[/yellow]")
+            return
+        
+        if not self.auto_fixer.enabled:
+            self.console.print("[yellow]Auto-fix is disabled. Enable with /autofix-on first.[/yellow]")
+            return
+        
+        self.console.print("\n[bold cyan]👁️ Starting Auto-Fix Watch Mode...[/bold cyan]")
+        self.console.print(f"Watching: [cyan]{self.cwd}[/cyan]")
+        self.console.print("[dim]Files will be auto-fixed when you save them[/dim]")
+        self.console.print("[dim]Use /autofix-watch-stop to stop[/dim]\n")
+        
+        # Create watcher with callback
+        def on_fix_applied(event: AutoFixEvent):
+            """Show subtle notification when fix is applied."""
+            rel_path = event.file_path.relative_to(self.cwd) if event.file_path.is_relative_to(self.cwd) else event.file_path
+            fix_desc = ", ".join(event.fix_types)
+            # Subtle single-line notification
+            self.console.print(f"[dim]✨ Auto-fixed {rel_path} ({event.fixes_applied} fix: {fix_desc})[/dim]")
+        
+        self.auto_fix_watcher = AutoFixWatcher(
+            self.auto_fixer,
+            on_fix_applied=on_fix_applied
+        )
+        
+        await self.auto_fix_watcher.start()
+        self.console.print("[green]✓ Auto-fix watch started[/green]")
+    
+    def stop_autofix_watch(self):
+        """Stop auto-fix watch mode."""
+        if not self.auto_fix_watcher:
+            self.console.print("[yellow]Auto-fix watch not running[/yellow]")
+            return
+        
+        if not self.auto_fix_watcher.is_running:
+            self.console.print("[yellow]Auto-fix watch not running[/yellow]")
+            return
+        
+        # Show final stats
+        stats = self.auto_fix_watcher.get_stats()
+        
+        self.auto_fix_watcher.stop()
+        self.console.print("\n[green]✓ Auto-fix watch stopped[/green]")
+        
+        if stats['total_fixes'] > 0:
+            self.console.print(f"  Fixed [cyan]{stats['files_fixed']}[/cyan] files with [cyan]{stats['total_fixes']}[/cyan] total fixes")
