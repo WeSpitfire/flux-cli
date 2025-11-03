@@ -29,6 +29,7 @@ from flux.core.state_tracker import ProjectStateTracker
 from flux.core.error_parser import ErrorParser
 from flux.core.test_runner import TestRunner, TestResult
 from flux.core.test_watcher import TestWatcher
+from flux.core.auto_fixer import AutoFixer
 from flux.ui.nl_commands import get_parser
 from flux.llm.provider_factory import create_provider
 from flux.llm.prompts import SYSTEM_PROMPT
@@ -112,6 +113,9 @@ class CLI:
         # Initialize test runner and watcher
         self.test_runner = TestRunner(cwd)
         self.test_watcher: Optional[TestWatcher] = None
+        
+        # Initialize auto-fixer (enabled by default)
+        self.auto_fixer = AutoFixer(cwd, enabled=True)
         
         # Initialize tool registry
         self.tools = ToolRegistry()
@@ -718,6 +722,44 @@ class CLI:
                     # Show current conversation state
                     await self.inspect_state()
                     continue
+                
+                # Auto-fix commands
+                if query.lower() == '/autofix':
+                    # Run auto-fix on current directory
+                    await self.run_autofix()
+                    continue
+                
+                if query.lower() == '/autofix-on':
+                    self.auto_fixer.enabled = True
+                    self.console.print("[green]✓ Auto-fix enabled[/green]")
+                    self.console.print("[dim]Flux will automatically fix safe issues in the background[/dim]")
+                    continue
+                
+                if query.lower() == '/autofix-off':
+                    self.auto_fixer.enabled = False
+                    self.console.print("[yellow]Auto-fix disabled[/yellow]")
+                    continue
+                
+                if query.lower() == '/autofix-undo':
+                    fix = self.auto_fixer.undo_last_fix()
+                    if fix:
+                        self.console.print(f"[green]✓ Undone:[/green] {fix.description}")
+                        self.console.print(f"  File: {fix.file_path}")
+                    else:
+                        self.console.print("[yellow]No auto-fixes to undo[/yellow]")
+                    continue
+                
+                if query.lower() == '/autofix-summary':
+                    summary = self.auto_fixer.get_fix_summary()
+                    if summary:
+                        total = sum(summary.values())
+                        summary_text = f"Total fixes applied: [cyan]{total}[/cyan]\n\n"
+                        for fix_type, count in summary.items():
+                            summary_text += f"  {fix_type}: {count}\n"
+                        self.console.print(Panel(summary_text, title="🔧 Auto-Fix Summary", border_style="blue"))
+                    else:
+                        self.console.print("[dim]No auto-fixes applied yet[/dim]")
+                    continue
 
                 if query.lower() == '/help':
                     self.console.print(
@@ -751,6 +793,12 @@ class CLI:
                         "  /summary - Show work summary for today\n"
                         "  /stats - Show project statistics\n"
                         "  /performance (/perf) - Show background processing stats\n"
+                        "\n[bold]Auto-Fix (Invisible Mode):[/bold]\n"
+                        "  /autofix - Run auto-fix on project files\n"
+                        "  /autofix-on - Enable auto-fix mode\n"
+                        "  /autofix-off - Disable auto-fix mode\n"
+                        "  /autofix-undo - Undo last auto-fix\n"
+                        "  /autofix-summary - Show auto-fix statistics\n"
                         "\n[bold]General:[/bold]\n"
                         "  /help - Show this help\n"
                         "  /model - Show current provider and model\n"
@@ -2087,3 +2135,60 @@ class CLI:
                 self.console.print(f"💻 Tech: [dim]{', '.join(self.project_info.frameworks)}[/dim]")
         
         self.console.print("\n" + "=" * 60 + "\n")
+    
+    async def run_autofix(self):
+        """Run auto-fix on all project files."""
+        if not self.auto_fixer.enabled:
+            self.console.print("[yellow]Auto-fix is disabled. Enable with /autofix-on[/yellow]")
+            return
+        
+        self.console.print("\n[bold cyan]🔧 Running Auto-Fix...[/bold cyan]\n")
+        
+        # Find all supported files
+        supported_extensions = {'.py', '.js', '.jsx', '.ts', '.tsx', '.json', '.yaml', '.yml'}
+        files_to_check = []
+        
+        for ext in supported_extensions:
+            files_to_check.extend(self.cwd.rglob(f'*{ext}'))
+        
+        # Filter out node_modules, venv, etc.
+        ignore_dirs = {'node_modules', 'venv', '.venv', '__pycache__', '.git', 'dist', 'build'}
+        files_to_check = [
+            f for f in files_to_check
+            if not any(part in f.parts for part in ignore_dirs)
+        ]
+        
+        if not files_to_check:
+            self.console.print("[yellow]No files found to auto-fix[/yellow]")
+            return
+        
+        self.console.print(f"Found {len(files_to_check)} files to analyze...")
+        
+        total_fixes = 0
+        files_fixed = 0
+        
+        # Process files
+        import asyncio
+        for i, file_path in enumerate(files_to_check, 1):
+            if i % 10 == 0:
+                self.console.print(f"[dim]Analyzing... {i}/{len(files_to_check)}[/dim]")
+            
+            # Analyze and apply fixes
+            fixes = await asyncio.to_thread(self.auto_fixer.analyze_file, file_path)
+            if fixes:
+                success, count = await asyncio.to_thread(self.auto_fixer.apply_fixes, file_path, fixes)
+                if success and count > 0:
+                    total_fixes += count
+                    files_fixed += 1
+                    rel_path = file_path.relative_to(self.cwd)
+                    self.console.print(f"  ✓ [green]{rel_path}[/green] - {count} fix(es)")
+        
+        # Show summary
+        self.console.print("\n[bold]Summary:[/bold]")
+        self.console.print(f"  Files analyzed: [cyan]{len(files_to_check)}[/cyan]")
+        self.console.print(f"  Files fixed: [green]{files_fixed}[/green]")
+        self.console.print(f"  Total fixes: [green]{total_fixes}[/green]")
+        
+        if total_fixes > 0:
+            self.console.print("\n[dim]Use /autofix-undo to undo last fix[/dim]")
+            self.console.print("[dim]Use /autofix-summary to see detailed statistics[/dim]")
