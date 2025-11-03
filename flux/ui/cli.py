@@ -33,6 +33,7 @@ from flux.core.auto_fixer import AutoFixer
 from flux.core.auto_fix_watcher import AutoFixWatcher, AutoFixEvent
 from flux.core.orchestrator import AIOrchestrator
 from flux.core.orchestrator_tools import register_all_tools
+from flux.core.auto_init import auto_initialize
 from flux.ui.nl_commands import get_parser
 from flux.llm.provider_factory import create_provider
 from flux.llm.prompts import SYSTEM_PROMPT
@@ -227,10 +228,8 @@ class CLI:
         """Run interactive REPL mode."""
         self.print_banner()
 
-        # Codebase graph building disabled by default to prevent startup delays
-        # Users can manually trigger with /index command
-        # import asyncio
-        # asyncio.create_task(self.build_codebase_graph())
+        # Smart auto-initialization based on project context
+        await auto_initialize(self)
 
         # Multi-line compose state (disabled if not truly interactive)
         import sys
@@ -239,8 +238,7 @@ class CLI:
         self._compose_buffer = []  # type: list[str]
         self._last_input_time = 0.0  # Track timing for paste detection
 
-        self.console.print("[dim]Type 'exit' or 'quit' to exit[/dim]")
-        self.console.print("[dim]Tip: Use /index to build codebase graph for intelligent suggestions[/dim]\n")
+        self.console.print("[dim]Type 'exit' or 'quit' to exit[/dim]\n")
 
         while True:
             try:
@@ -2368,20 +2366,27 @@ class CLI:
             self.console.print("\n[dim]Use /autofix-undo to undo last fix[/dim]")
             self.console.print("[dim]Use /autofix-summary to see detailed statistics[/dim]")
     
-    async def start_autofix_watch(self):
-        """Start auto-fix watch mode."""
+    async def start_autofix_watch(self, silent: bool = False):
+        """Start auto-fix watch mode.
+        
+        Args:
+            silent: If True, suppress startup messages (for auto-init)
+        """
         if self.auto_fix_watcher and self.auto_fix_watcher.is_running:
-            self.console.print("[yellow]Auto-fix watch already running[/yellow]")
+            if not silent:
+                self.console.print("[yellow]Auto-fix watch already running[/yellow]")
             return
         
         if not self.auto_fixer.enabled:
-            self.console.print("[yellow]Auto-fix is disabled. Enable with /autofix-on first.[/yellow]")
+            if not silent:
+                self.console.print("[yellow]Auto-fix is disabled. Enable with /autofix-on first.[/yellow]")
             return
         
-        self.console.print("\n[bold cyan]👁️ Starting Auto-Fix Watch Mode...[/bold cyan]")
-        self.console.print(f"Watching: [cyan]{self.cwd}[/cyan]")
-        self.console.print("[dim]Files will be auto-fixed when you save them[/dim]")
-        self.console.print("[dim]Use /autofix-watch-stop to stop[/dim]\n")
+        if not silent:
+            self.console.print("\n[bold cyan]👁️ Starting Auto-Fix Watch Mode...[/bold cyan]")
+            self.console.print(f"Watching: [cyan]{self.cwd}[/cyan]")
+            self.console.print("[dim]Files will be auto-fixed when you save them[/dim]")
+            self.console.print("[dim]Use /autofix-watch-stop to stop[/dim]\n")
         
         # Create watcher with callback
         def on_fix_applied(event: AutoFixEvent):
