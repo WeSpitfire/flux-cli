@@ -282,9 +282,9 @@ class CLI:
                         "  [green]/performance[/green] (or [green]/perf[/green]) - Show background processing stats\n"
                         "\n[bold cyan]Code Quality:[/bold cyan]\n"
                         "  [green]/validate[/green] - Validate modified files for errors\n"
-                    )
-                    self.console.print(Panel(help_text, title="\ud83d\udcd6 Help", border_style="blue"))
-                    continue
+                        "\n[bold cyan]Debug & Diagnostics:[/bold cyan]\n"
+                        "  [green]/debug-on[/green] - Enable debug logging\n"
+                        "  [green]/debug-off[/green] - Disable debug logging\n"
                         "  [green]/debug[/green] - Show debug session summary\n"
                         "  [green]/debug-analyze <issue>[/green] - Analyze logs for an issue\n"
                         "  [green]/inspect[/green] - Inspect current conversation state\n"
