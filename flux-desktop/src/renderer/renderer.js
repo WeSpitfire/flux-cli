@@ -250,6 +250,41 @@ function startStatusRotation() {
   }, 3000); // Change every 3 seconds
 }
 
+// Auto-fix notification system
+let autoFixNotificationTimeout = null;
+
+function showAutoFixNotification(filePath, fixCount, fixTypes) {
+  // Don't show during active processing
+  const activeTerminal = getActiveTerminal();
+  if (activeTerminal && activeTerminal.state.isProcessing) {
+    return;
+  }
+  
+  // Clear any existing notification timeout
+  if (autoFixNotificationTimeout) {
+    clearTimeout(autoFixNotificationTimeout);
+  }
+  
+  // Show notification in status bar
+  const message = `✨ Fixed ${filePath} (${fixCount} fix)`;
+  statusDot.className = 'status-dot success';
+  statusText.textContent = message;
+  statusText.title = `Fixed: ${fixTypes}`; // Show details on hover
+  
+  // Add visual feedback
+  statusDot.style.animation = 'pulse 0.5s ease-in-out';
+  
+  // Clear the notification after 5 seconds
+  autoFixNotificationTimeout = setTimeout(() => {
+    if (!activeTerminal || !activeTerminal.state.isProcessing) {
+      statusDot.className = 'status-dot';
+      statusText.textContent = 'Ready';
+      statusText.title = '';
+      statusDot.style.animation = '';
+    }
+  }, 5000);
+}
+
 function stopStatusRotation() {
   if (statusRotationInterval) {
     clearInterval(statusRotationInterval);
@@ -633,6 +668,13 @@ window.flux.onOutput((tabId, data) => {
   if (!terminalData) {
     console.warn(`No terminal found for tab ${tabId}`);
     return;
+  }
+  
+  // Detect auto-fix notifications and show in status bar
+  const autoFixMatch = data.match(/✨ Auto-fixed (.+?) \((\d+) fix: (.+?)\)/);
+  if (autoFixMatch && tabId === tabManager.activeTabId) {
+    const [, filePath, fixCount, fixTypes] = autoFixMatch;
+    showAutoFixNotification(filePath, parseInt(fixCount), fixTypes);
   }
   
   // Add Flux response header if this is the start of output

@@ -181,6 +181,38 @@ html, body {
   }
 }
 
+/* Status dot states */
+.status-dot.processing {
+  background: radial-gradient(circle, var(--warning), var(--warning) 40%, transparent 70%);
+  box-shadow: 0 0 8px var(--warning), 0 0 12px var(--warning);
+}
+
+.status-dot.error {
+  background: radial-gradient(circle, var(--error), var(--error) 40%, transparent 70%);
+  box-shadow: 0 0 8px var(--error), 0 0 12px var(--error);
+}
+
+.status-dot.success {
+  background: radial-gradient(circle, var(--success), var(--success) 40%, transparent 70%);
+  box-shadow: 0 0 8px var(--success), 0 0 12px var(--success);
+}
+
+/* Auto-fix notification pulse */
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 .icon-btn {
   display: flex;
   align-items: center;
