@@ -198,7 +198,9 @@ class CLI:
         import asyncio
         asyncio.create_task(self.build_codebase_graph())
 
-        # Multi-line compose state
+        # Multi-line compose state (disabled if not truly interactive)
+        import sys
+        self._enable_paste_mode = sys.stdin.isatty()  # Only enable for real terminals
         self._compose_mode = False
         self._compose_buffer = []  # type: list[str]
         self._last_input_time = 0.0  # Track timing for paste detection
@@ -301,11 +303,11 @@ class CLI:
                     )
                     continue
                 
-                # Paste mode handling (silent - auto-detects and auto-sends)
+                # Paste mode handling (only if enabled for interactive terminals)
                 import time
                 current_time = time.time()
                 
-                if getattr(self, "_compose_mode", False):
+                if getattr(self, "_enable_paste_mode", True) and getattr(self, "_compose_mode", False):
                     # Check for explicit end commands
                     if query.strip() in ('/end', '/send', '```'):
                         combined = "\n".join(self._compose_buffer).strip()
@@ -350,8 +352,9 @@ class CLI:
                     continue
 
                 # Auto-detect paste: if input looks like start of multi-line, enter silent mode
+                # Only enable if running in interactive terminal (not piped/desktop app)
                 import re
-                if re.match(r"^(\s*\d+\.|\s*[-*])\s+", query) or (query.rstrip().endswith(':') and len(query) > 10):
+                if getattr(self, "_enable_paste_mode", True) and (re.match(r"^(\s*\d+\.|\s*[-*])\s+", query) or (query.rstrip().endswith(':') and len(query) > 10)):
                     self._compose_mode = True
                     self._compose_buffer = [query]
                     self._last_input_time = current_time
