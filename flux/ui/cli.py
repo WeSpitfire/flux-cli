@@ -201,14 +201,14 @@ class CLI:
         # Multi-line compose state
         self._compose_mode = False
         self._compose_buffer = []  # type: list[str]
+        self._last_input_time = 0.0  # Track timing for paste detection
 
         self.console.print("[dim]Type 'exit' or 'quit' to exit[/dim]\n")
 
         while True:
             try:
-                # Get user input
-                prompt_label = "You (paste)" if getattr(self, "_compose_mode", False) else "You"
-                query = Prompt.ask(f"\n[bold green]{prompt_label}[/bold green]")
+                # Get user input (always show normal prompt)
+                query = Prompt.ask(f"\n[bold green]You[/bold green]")
 
                 if query.lower() in ['exit', 'quit', 'q']:
                     self.console.print("\n[cyan]Goodbye![/cyan]")
@@ -301,9 +301,12 @@ class CLI:
                     )
                     continue
                 
-                # Paste mode handling
+                # Paste mode handling (silent - auto-detects and auto-sends)
+                import time
+                current_time = time.time()
+                
                 if getattr(self, "_compose_mode", False):
-                    # End conditions
+                    # Check for explicit end commands
                     if query.strip() in ('/end', '/send', '```'):
                         combined = "\n".join(self._compose_buffer).strip()
                         self._compose_mode = False
@@ -311,37 +314,47 @@ class CLI:
                         if not combined:
                             self.console.print("[dim]Nothing to send[/dim]")
                             continue
-                        # Replace query with combined
                         query = combined
-                        self.console.print("[dim]✓ Sent composed input[/dim]")
                     elif query.strip() == '/discard':
                         self._compose_mode = False
                         self._compose_buffer = []
-                        self.console.print("[yellow]✗ Discarded composed input[/yellow]")
+                        self.console.print("[yellow]Discarded paste buffer[/yellow]")
                         continue
+                    elif not query.strip():
+                        # Empty line after paste - auto-send if buffer has content
+                        if self._compose_buffer and (current_time - self._last_input_time) > 0.5:
+                            combined = "\n".join(self._compose_buffer).strip()
+                            self._compose_mode = False
+                            self._compose_buffer = []
+                            query = combined
+                        else:
+                            # Still pasting - skip empty line
+                            self._last_input_time = current_time
+                            continue
                     else:
-                        # Accumulate and prompt for more
+                        # Accumulate silently
                         self._compose_buffer.append(query)
-                        self.console.print(f"[dim]… composing ({len(self._compose_buffer)} lines). Type /end to send, /discard to cancel[/dim]")
+                        self._last_input_time = current_time
                         continue
 
-                # Commands to start compose mode
+                # Manual paste mode start
                 if query.strip() in ('/paste', '```'):
                     self._compose_mode = True
                     self._compose_buffer = []
-                    self.console.print("[cyan]Paste mode ON[/cyan] [dim](finish with /end or ```)[/dim]")
+                    self._last_input_time = current_time
+                    self.console.print("[dim]Paste mode - press Enter twice when done[/dim]")
                     continue
 
-                # Skip empty input
+                # Skip empty input in normal mode
                 if not query.strip():
                     continue
 
-                # Auto-detect list-style multi-line tasks and enter compose mode
+                # Auto-detect paste: if input looks like start of multi-line, enter silent mode
                 import re
                 if re.match(r"^(\s*\d+\.|\s*[-*])\s+", query) or (query.rstrip().endswith(':') and len(query) > 10):
                     self._compose_mode = True
                     self._compose_buffer = [query]
-                    self.console.print("[cyan]Detected multi-line task. Paste mode ON[/cyan] [dim](finish with /end or ```)[/dim]")
+                    self._last_input_time = current_time
                     continue
 
                 # Handle special memory commands
