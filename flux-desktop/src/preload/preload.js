@@ -37,6 +37,10 @@ contextBridge.exposeInMainWorld('flux', {
     ipcRenderer.on('flux-cancelled', (_, { tabId }) => {
       callback(tabId);
     });
+  },
+  
+  openSettings: () => {
+    ipcRenderer.send('open-settings');
   }
 });
 
@@ -53,4 +57,20 @@ contextBridge.exposeInMainWorld('fileSystem', {
   getCwd: () => ipcRenderer.invoke('get-cwd'),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
   searchFiles: (directory, query, maxResults) => ipcRenderer.invoke('search-files', { directory, query, maxResults })
+});
+
+// Expose settings API
+contextBridge.exposeInMainWorld('settings', {
+  get: () => ipcRenderer.invoke('settings:get'),
+  getApiKey: (provider) => ipcRenderer.invoke('settings:getApiKey', provider),
+  setApiKey: (provider, key) => ipcRenderer.invoke('settings:setApiKey', { provider, key }),
+  setProvider: (provider) => ipcRenderer.invoke('settings:setProvider', provider),
+  setModel: (model) => ipcRenderer.invoke('settings:setModel', model),
+  setLLMSettings: (settings) => ipcRenderer.invoke('settings:setLLMSettings', settings),
+  setAppearance: (appearance) => ipcRenderer.invoke('settings:setAppearance', appearance),
+  setExperimental: (features) => ipcRenderer.invoke('settings:setExperimental', features),
+  testConnection: (provider) => ipcRenderer.invoke('settings:testConnection', provider),
+  getAvailableModels: (provider) => ipcRenderer.invoke('settings:getAvailableModels', provider),
+  reset: () => ipcRenderer.invoke('settings:reset'),
+  getPath: () => ipcRenderer.invoke('settings:getPath')
 });

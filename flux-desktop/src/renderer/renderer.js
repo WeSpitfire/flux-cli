@@ -20,7 +20,19 @@ if (document.readyState === 'loading') {
   initializeApp();
 }
 
-function initializeApp() {
+async function initializeApp() {
+  // Load typing speed from settings
+  try {
+    const settings = await window.settings.get();
+    if (settings.appearance && settings.appearance.typingSpeed !== undefined) {
+      const speeds = [0, 5, 10, 15, 25, 40];
+      TYPING_SPEED = speeds[settings.appearance.typingSpeed] || 15;
+      console.log('[Settings] Loaded typing speed:', TYPING_SPEED, 'ms');
+    }
+  } catch (error) {
+    console.warn('[Settings] Failed to load typing speed, using default:', error);
+  }
+  
   // Initialize TabManager first
   tabManager = new window.TabManager();
   
@@ -794,32 +806,17 @@ if (changeDirBtn) {
   });
 }
 
-// Settings button - adjust typing speed
+// Settings button - open settings window
 const settingsBtn = document.getElementById('settings-btn');
+console.log('[Settings] Settings button found:', settingsBtn);
 if (settingsBtn) {
   settingsBtn.addEventListener('click', () => {
-    const activeTerminal = getActiveTerminal();
-    if (!activeTerminal) return;
-    
-    const speeds = [
-      { name: 'Instant', value: 0 },
-      { name: 'Very Fast', value: 5 },
-      { name: 'Fast', value: 10 },
-      { name: 'Normal', value: 15 },
-      { name: 'Slow', value: 25 },
-      { name: 'Very Slow', value: 40 }
-    ];
-    
-    const currentSpeed = speeds.find(s => s.value === TYPING_SPEED) || speeds[3];
-    const currentIndex = speeds.indexOf(currentSpeed);
-    const nextIndex = (currentIndex + 1) % speeds.length;
-    
-    TYPING_SPEED = speeds[nextIndex].value;
-    
-    // Show feedback in terminal
-    activeTerminal.terminal.writeln(`\r\n\x1b[90mTyping speed: ${speeds[nextIndex].name}\x1b[0m`);
-    activeTerminal.terminal.scrollToBottom();
+    console.log('[Settings] Opening settings window...');
+    window.flux.openSettings();
   });
+  console.log('[Settings] Settings button handler attached');
+} else {
+  console.error('[Settings] Settings button not found in DOM!');
 }
 
 // Focus input on load

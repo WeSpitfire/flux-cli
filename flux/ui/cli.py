@@ -568,6 +568,30 @@ class CLI:
             border_style="blue"
         ))
         
+        # CHECK FOR RETRY LOOP BEFORE EXECUTING
+        if self.failure_tracker.is_retry_loop(tool_name, threshold=2):
+            guidance = self.failure_tracker.get_retry_guidance(tool_name)
+            if guidance:
+                # BLOCK execution - force strategy change
+                result = {
+                    "error": {
+                        "code": "RETRY_LOOP_DETECTED",
+                        "message": f"Too many consecutive failures for {tool_name}. You MUST try a different approach.",
+                    },
+                    "retry_guidance": guidance,
+                    "retry_blocked": True,
+                    "previous_failures": self.failure_tracker.failure_count_by_tool.get(tool_name, 0)
+                }
+                
+                # Add result and display blocking message
+                self.llm.add_tool_result(tool_id, result)
+                self.console.print(Panel(
+                    f"[bold red]⚠️  RETRY LOOP DETECTED[/bold red]\n\n{guidance}",
+                    title="❌ Blocked",
+                    border_style="red"
+                ))
+                return  # Don't execute the tool
+        
         # Execute tool
         try:
             result = await self.tools.execute(tool_name, **tool_input)
@@ -579,17 +603,27 @@ class CLI:
                 
                 file_path = tool_input.get("path")
                 if file_path:
-                    self.console.print("[yellow]⚠ Search text not found. Reading file for context...[/yellow]")
+                    retry_count = self.failure_tracker.failure_count_by_tool.get(tool_name, 0)
+                    self.console.print(f"[yellow]⚠ Search text not found (attempt {retry_count + 1}). Reading file for context...[/yellow]")
                     
                     # Read the file to get current content
                     try:
                         read_result = await self.tools.execute("read_files", paths=[file_path])
                         
-                        # Add helpful context to the error
+                        # Add helpful context to the error with stronger guidance
                         result["auto_recovery"] = {
                             "action": "file_read_completed",
-                            "message": "The file has been read automatically. Please review the current content and retry your edit with the correct search text.",
-                            "file_content_available": True
+                            "message": (
+                                "⚠️  SEARCH TEXT NOT FOUND - File has been auto-read for you.\n\n"
+                                "BEFORE RETRYING:\n"
+                                "1. Look at the EXACT file content in the Result panel below\n"
+                                "2. Copy the EXACT text you want to change (including ALL spaces/tabs)\n"
+                                "3. DO NOT guess or try to remember - use the exact content shown\n"
+                                "4. If this is your 2nd attempt, consider using a different tool or approach\n\n"
+                                f"Retry count: {retry_count + 1}/2 (next failure will be blocked)"
+                            ),
+                            "file_content_available": True,
+                            "retry_count": retry_count + 1
                         }
                         
                         # Show the file content to user
@@ -632,6 +666,17 @@ class CLI:
                     input_params=tool_input
                 )
                 
+                # Get failure count and show visual warning
+                failure_count = self.failure_tracker.failure_count_by_tool.get(tool_name, 0)
+                if failure_count == 2:
+                    self.console.print(Panel(
+                        f"[bold yellow]⚠️  {tool_name} has failed twice in a row[/bold yellow]\n\n"
+                        f"The LLM should now try a DIFFERENT approach or tool.\n"
+                        f"Next attempt will be automatically blocked.",
+                        title="🔄 Retry Warning",
+                        border_style="yellow"
+                    ))
+                
                 # Check for retry loop and inject guidance
                 if self.failure_tracker.is_retry_loop(tool_name):
                     guidance = self.failure_tracker.get_retry_guidance(tool_name)
@@ -639,8 +684,10 @@ class CLI:
                         # Inject guidance into the result for LLM to see
                         result["retry_guidance"] = guidance
             else:
-                # Success - clear failures for this tool
-                self.failure_tracker.clear_tool_failures(tool_name)
+                # Success - clear ALL failures (fresh start)
+                if self.failure_tracker.failures:
+                    self.console.print("[dim]✓ Operation successful - failure tracking reset[/dim]")
+                self.failure_tracker.reset()
             
             # Record in memory
             self.memory.record_tool_use(tool_name, tool_input, result)
@@ -709,8 +756,13 @@ class CLI:
             response_text = ""
             tool_uses = []
             
-            # Build system prompt with project context
+            # Build system prompt with project context and retry warnings
             system_prompt = self._build_system_prompt()
+            
+            # Add retry context if there are failures
+            retry_context = self._get_retry_context()
+            if retry_context:
+                system_prompt += retry_context
             
             # Send empty message to get LLM's response to tool results
             async for event in self.llm.send_message(
@@ -745,6 +797,28 @@ class CLI:
             # Log error but don't crash - allow user to continue
             self.console.print(f"\n[red]Error in conversation: {e}[/red]")
             self.console.print("[dim]You can continue chatting - the error has been handled[/dim]")
+    
+    def _get_retry_context(self) -> str:
+        """Get retry context warning for system prompt."""
+        if not self.failure_tracker.failures:
+            return ""
+        
+        # Check for tools that have failed multiple times
+        warnings = []
+        for tool_name, count in self.failure_tracker.failure_count_by_tool.items():
+            if count >= 2:
+                warnings.append(
+                    f"⚠️  CRITICAL: {tool_name} has failed {count} times. "
+                    f"DO NOT retry the same approach. Try:\n"
+                    f"  - Re-read files and copy EXACT text\n"
+                    f"  - Use a different tool (e.g., ast_edit for Python)\n"
+                    f"  - Break the change into smaller steps\n"
+                    f"  - Ask for clarification if unclear"
+                )
+        
+        if warnings:
+            return "\n\n" + "\n\n".join(warnings) + "\n"
+        return ""
     
     def _build_system_prompt(self, query: Optional[str] = None) -> str:
         """Build system prompt with project context and intelligence."""

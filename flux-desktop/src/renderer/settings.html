@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flux Settings</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #1a1b26;
+      color: #c0caf5;
+      padding: 20px;
+      overflow-y: auto;
+    }
+
+    .settings-container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .settings-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 30px;
+    }
+
+    .settings-header h1 {
+      font-size: 28px;
+      font-weight: 600;
+      color: #7aa2f7;
+    }
+
+    .close-btn {
+      background: transparent;
+      border: none;
+      color: #a9b1d6;
+      font-size: 24px;
+      cursor: pointer;
+      padding: 5px 10px;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+
+    .close-btn:hover {
+      background: #24283b;
+      color: #c0caf5;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 30px;
+      border-bottom: 2px solid #24283b;
+    }
+
+    .tab {
+      padding: 12px 20px;
+      background: transparent;
+      border: none;
+      color: #a9b1d6;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+      position: relative;
+    }
+
+    .tab:hover {
+      color: #c0caf5;
+    }
+
+    .tab.active {
+      color: #7aa2f7;
+    }
+
+    .tab.active::after {
+      content: '';
+      position: absolute;
+      bottom: -2px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: #7aa2f7;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .section {
+      background: #16161e;
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #7aa2f7;
+      margin-bottom: 16px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #a9b1d6;
+      margin-bottom: 8px;
+    }
+
+    .label-with-status {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .key-status {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+
+    .key-status.configured {
+      background: #1e3a4d;
+      color: #4ec9b0;
+    }
+
+    .key-status.missing {
+      background: #3d2a28;
+      color: #f7768e;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      background: #1a1b26;
+      border: 1px solid #24283b;
+      border-radius: 4px;
+      color: #c0caf5;
+      font-size: 14px;
+      font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+      transition: all 0.2s;
+    }
+
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: #7aa2f7;
+      background: #1f2335;
+    }
+
+    input[type="password"] {
+      letter-spacing: 2px;
+    }
+
+    .input-with-button {
+      display: flex;
+      gap: 8px;
+    }
+
+    .input-with-button input {
+      flex: 1;
+    }
+
+    button {
+      padding: 10px 16px;
+      background: #7aa2f7;
+      border: none;
+      border-radius: 4px;
+      color: #1a1b26;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    button:hover {
+      background: #89b4fa;
+      transform: translateY(-1px);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    button.secondary {
+      background: #414868;
+      color: #c0caf5;
+    }
+
+    button.secondary:hover {
+      background: #565f89;
+    }
+
+    button.danger {
+      background: #f7768e;
+      color: #1a1b26;
+    }
+
+    button.danger:hover {
+      background: #ff9db1;
+    }
+
+    button.small {
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .help-text {
+      font-size: 12px;
+      color: #565f89;
+      margin-top: 6px;
+    }
+
+    .model-card {
+      background: #1a1b26;
+      border: 1px solid #24283b;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .model-card:hover {
+      border-color: #414868;
+      background: #1f2335;
+    }
+
+    .model-card.selected {
+      border-color: #7aa2f7;
+      background: #1e2738;
+    }
+
+    .model-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .model-name {
+      font-weight: 600;
+      color: #c0caf5;
+    }
+
+    .model-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+      background: #1e3a4d;
+      color: #4ec9b0;
+    }
+
+    .model-details {
+      font-size: 11px;
+      color: #565f89;
+    }
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    .status-message {
+      padding: 12px;
+      border-radius: 6px;
+      margin-top: 12px;
+      font-size: 13px;
+      display: none;
+    }
+
+    .status-message.show {
+      display: block;
+    }
+
+    .status-message.success {
+      background: #1e3a4d;
+      color: #4ec9b0;
+      border-left: 3px solid #4ec9b0;
+    }
+
+    .status-message.error {
+      background: #3d2a28;
+      color: #f7768e;
+      border-left: 3px solid #f7768e;
+    }
+
+    .status-message.info {
+      background: #1e2738;
+      color: #7aa2f7;
+      border-left: 3px solid #7aa2f7;
+    }
+
+    .slider-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      height: 6px;
+      background: #24283b;
+      border-radius: 3px;
+      outline: none;
+      -webkit-appearance: none;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      background: #7aa2f7;
+      cursor: pointer;
+      border-radius: 50%;
+    }
+
+    .slider-value {
+      min-width: 60px;
+      text-align: right;
+      font-family: 'SF Mono', Monaco, monospace;
+      color: #7aa2f7;
+      font-weight: 600;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .loading {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #7aa2f7;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .speed-labels {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .speed-label {
+      background: #1a1b26;
+      border: 1px solid #24283b;
+      border-radius: 6px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .speed-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: #c0caf5;
+    }
+
+    .speed-desc {
+      font-size: 11px;
+      color: #565f89;
+    }
+  </style>
+</head>
+<body>
+  <div class="settings-container">
+    <div class="settings-header">
+      <h1>⚙️ Settings</h1>
+      <button class="close-btn" onclick="window.close()">×</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="api">API Keys</button>
+      <button class="tab" data-tab="model">Model & LLM</button>
+      <button class="tab" data-tab="appearance">Appearance</button>
+      <button class="tab" data-tab="experimental">Experimental</button>
+    </div>
+
+    <!-- API Keys Tab -->
+    <div class="tab-content active" data-tab="api">
+      <div class="section">
+        <div class="section-title">🔑 Anthropic (Claude)</div>
+        
+        <div class="form-group">
+          <div class="label-with-status">
+            <label for="anthropic-key">API Key</label>
+            <span class="key-status" id="anthropic-status">Not Configured</span>
+          </div>
+          <div class="input-with-button">
+            <input 
+              type="password" 
+              id="anthropic-key" 
+              placeholder="sk-ant-..." 
+              autocomplete="off"
+            />
+            <button class="small secondary" onclick="toggleKeyVisibility('anthropic-key')">👁️</button>
+          </div>
+          <p class="help-text">Get your API key from <a href="https://console.anthropic.com/" style="color: #7aa2f7">console.anthropic.com</a></p>
+        </div>
+
+        <div class="button-group">
+          <button onclick="saveApiKey('anthropic')">Save Key</button>
+          <button class="secondary" onclick="testConnection('anthropic')">
+            <span id="test-anthropic">Test Connection</span>
+          </button>
+        </div>
+        <div class="status-message" id="anthropic-message"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">🤖 OpenAI (GPT)</div>
+        
+        <div class="form-group">
+          <div class="label-with-status">
+            <label for="openai-key">API Key</label>
+            <span class="key-status" id="openai-status">Not Configured</span>
+          </div>
+          <div class="input-with-button">
+            <input 
+              type="password" 
+              id="openai-key" 
+              placeholder="sk-..." 
+              autocomplete="off"
+            />
+            <button class="small secondary" onclick="toggleKeyVisibility('openai-key')">👁️</button>
+          </div>
+          <p class="help-text">Get your API key from <a href="https://platform.openai.com/api-keys" style="color: #7aa2f7">platform.openai.com/api-keys</a></p>
+        </div>
+
+        <div class="button-group">
+          <button onclick="saveApiKey('openai')">Save Key</button>
+          <button class="secondary" onclick="testConnection('openai')">
+            <span id="test-openai">Test Connection</span>
+          </button>
+        </div>
+        <div class="status-message" id="openai-message"></div>
+      </div>
+    </div>
+
+    <!-- Model & LLM Tab -->
+    <div class="tab-content" data-tab="model">
+      <div class="section">
+        <div class="section-title">🤖 Provider & Model</div>
+        
+        <div class="form-group">
+          <label for="provider">AI Provider</label>
+          <select id="provider" onchange="onProviderChange()">
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="openai">OpenAI (GPT)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Available Models</label>
+          <div id="models-list"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">⚙️ LLM Parameters</div>
+        
+        <div class="form-group">
+          <label for="max-tokens">Max Tokens per Response</label>
+          <div class="slider-group">
+            <input type="range" id="max-tokens" min="1024" max="16000" step="512" value="4096">
+            <span class="slider-value" id="max-tokens-value">4096</span>
+          </div>
+          <p class="help-text">Higher values allow longer responses but cost more</p>
+        </div>
+
+        <div class="form-group">
+          <label for="temperature">Temperature</label>
+          <div class="slider-group">
+            <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.0">
+            <span class="slider-value" id="temperature-value">0.0</span>
+          </div>
+          <p class="help-text">0 = deterministic, 2 = creative (recommend 0 for coding)</p>
+        </div>
+
+        <div class="form-group">
+          <label for="max-history">Max Context History</label>
+          <div class="slider-group">
+            <input type="range" id="max-history" min="2000" max="150000" step="1000" value="8000">
+            <span class="slider-value" id="max-history-value">8000</span>
+          </div>
+          <p class="help-text">Tokens of conversation history to keep</p>
+        </div>
+
+        <div class="form-group">
+          <div class="checkbox-group">
+            <input type="checkbox" id="require-approval" checked>
+            <label for="require-approval" style="margin: 0">Require approval for file changes</label>
+          </div>
+        </div>
+
+        <div class="button-group">
+          <button onclick="saveLLMSettings()">Save Settings</button>
+        </div>
+        <div class="status-message" id="llm-message"></div>
+      </div>
+    </div>
+
+    <!-- Appearance Tab -->
+    <div class="tab-content" data-tab="appearance">
+      <div class="section">
+        <div class="section-title">🎨 Typing Animation</div>
+        
+        <div class="form-group">
+          <label for="typing-speed">Output Speed</label>
+          <div class="slider-group">
+            <input type="range" id="typing-speed" min="0" max="5" step="1" value="3">
+            <span class="slider-value" id="typing-speed-value">Normal</span>
+          </div>
+          <p class="help-text">Control how fast Flux's responses appear in the terminal</p>
+        </div>
+
+        <div class="speed-labels">
+          <div class="speed-label">
+            <span class="speed-name">Instant</span>
+            <span class="speed-desc">0ms delay</span>
+          </div>
+          <div class="speed-label">
+            <span class="speed-name">Very Fast</span>
+            <span class="speed-desc">5ms delay</span>
+          </div>
+          <div class="speed-label">
+            <span class="speed-name">Fast</span>
+            <span class="speed-desc">10ms delay</span>
+          </div>
+          <div class="speed-label">
+            <span class="speed-name">Normal</span>
+            <span class="speed-desc">15ms delay</span>
+          </div>
+          <div class="speed-label">
+            <span class="speed-name">Slow</span>
+            <span class="speed-desc">25ms delay</span>
+          </div>
+          <div class="speed-label">
+            <span class="speed-name">Very Slow</span>
+            <span class="speed-desc">40ms delay</span>
+          </div>
+        </div>
+
+        <div class="button-group">
+          <button onclick="saveAppearanceSettings()">Save Settings</button>
+        </div>
+        <div class="status-message" id="appearance-message"></div>
+      </div>
+    </div>
+
+    <!-- Experimental Tab -->
+    <div class="tab-content" data-tab="experimental">
+      <div class="section">
+        <div class="section-title">🧪 Experimental Features</div>
+        <p class="help-text" style="margin-bottom: 16px">These features are in development and may not work perfectly</p>
+        
+        <div class="form-group">
+          <div class="checkbox-group">
+            <input type="checkbox" id="smart-suggestions" checked>
+            <label for="smart-suggestions" style="margin: 0">Smart Suggestions</label>
+          </div>
+          <p class="help-text">Proactively suggest relevant files and actions</p>
+        </div>
+
+        <div class="form-group">
+          <div class="checkbox-group">
+            <input type="checkbox" id="background-processing" checked>
+            <label for="background-processing" style="margin: 0">Background Processing</label>
+          </div>
+          <p class="help-text">Pre-load likely-needed files during conversations</p>
+        </div>
+
+        <div class="form-group">
+          <div class="checkbox-group">
+            <input type="checkbox" id="context-pruning" checked>
+            <label for="context-pruning" style="margin: 0">Context Pruning</label>
+          </div>
+          <p class="help-text">Automatically trim conversation history to save tokens</p>
+        </div>
+
+        <div class="button-group">
+          <button onclick="saveExperimentalSettings()">Save Settings</button>
+        </div>
+        <div class="status-message" id="experimental-message"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">🔄 Reset</div>
+        <p class="help-text" style="margin-bottom: 16px">Reset all settings to defaults (API keys will be cleared)</p>
+        
+        <div class="button-group">
+          <button class="danger" onclick="resetSettings()">Reset All Settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="settings.js"></script>
+</body>
+</html>

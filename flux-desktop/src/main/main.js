@@ -2,12 +2,16 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const SettingsManager = require('./settingsManager');
 
 // Map of tabId -> flux process data
 const fluxProcesses = new Map();
 
 // Map of tabId -> retry state for auto-restart
 const retryState = new Map();
+
+// Settings manager instance
+let settingsManager;
 
 // Auto-restart configuration
 const MAX_RETRIES = 5;
@@ -76,9 +80,9 @@ function createWindow () {
       win.webContents.send('flux-error', { tabId, data: errorMsg + restartMsg });
     }
     
-    setTimeout(() => {
+    setTimeout(async () => {
       console.log(`[Tab ${tabId}] Attempting restart ${state.attempts}/${MAX_RETRIES}`);
-      spawnFluxForTab(tabId, cwd);
+      await spawnFluxForTab(tabId, cwd);
     }, waitTime);
     
     // Exponential backoff
@@ -86,7 +90,7 @@ function createWindow () {
   }
 
   // Helper to spawn a new Flux process for a tab
-  function spawnFluxForTab(tabId, cwd) {
+  async function spawnFluxForTab(tabId, cwd) {
     const projectRoot = path.resolve(path.join(__dirname, '../../..'));
     const venvFluxPath = path.resolve(path.join(projectRoot, 'venv', 'bin', 'flux'));
     const fluxExists = fs.existsSync(venvFluxPath);
@@ -110,14 +114,55 @@ function createWindow () {
     console.log(`[Tab ${tabId}] Working directory (original):`, cwd);
     console.log(`[Tab ${tabId}] Working directory (expanded):`, workingDir);
     
+    // Get API keys from settings if available
+    const env = { 
+      ...process.env,
+      PYTHONUNBUFFERED: '1',
+      FORCE_COLOR: '1',
+      TERM: 'xterm-256color'
+    };
+    
+    // Inject API keys and settings from settings manager
+    if (settingsManager) {
+      try {
+        // Get best working provider (validates keys)
+        const bestProvider = await settingsManager.getBestWorkingProvider();
+        
+        if (bestProvider.validated && bestProvider.key) {
+          const settings = settingsManager.getSettings();
+          
+          // Use the validated provider
+          env.FLUX_PROVIDER = bestProvider.provider;
+          env.FLUX_MODEL = bestProvider.model;
+          env.FLUX_MAX_TOKENS = String(settings.maxTokens);
+          env.FLUX_TEMPERATURE = String(settings.temperature);
+          env.FLUX_REQUIRE_APPROVAL = settings.requireApproval ? 'true' : 'false';
+          
+          // Set the working API key
+          if (bestProvider.provider === 'anthropic') {
+            env.ANTHROPIC_API_KEY = bestProvider.key;
+          } else if (bestProvider.provider === 'openai') {
+            env.OPENAI_API_KEY = bestProvider.key;
+          }
+          
+          const fallbackMsg = bestProvider.fallback ? ' (fallback)' : '';
+          const cachedMsg = bestProvider.cached ? ' (cached)' : '';
+          console.log(`[Tab ${tabId}] Using provider: ${bestProvider.provider}${fallbackMsg}${cachedMsg}, model: ${bestProvider.model}`);
+        } else {
+          console.error(`[Tab ${tabId}] No valid API keys found:`, bestProvider.error);
+          // Still set basic env vars from settings
+          const settings = settingsManager.getSettings();
+          env.FLUX_PROVIDER = settings.provider;
+          env.FLUX_MODEL = settings.model;
+        }
+      } catch (error) {
+        console.error(`[Tab ${tabId}] Failed to get best provider:`, error);
+      }
+    }
+    
     const fluxProcess = spawn(fluxCommand, [], {
       cwd: workingDir,
-      env: { 
-        ...process.env,
-        PYTHONUNBUFFERED: '1',
-        FORCE_COLOR: '1',
-        TERM: 'xterm-256color'
-      },
+      env: env,
       shell: false
     });
 
@@ -181,9 +226,9 @@ function createWindow () {
   }
 
   // IPC handlers for tab-specific flux processes
-  ipcMain.on('flux-create-process', (event, { tabId, cwd }) => {
+  ipcMain.on('flux-create-process', async (event, { tabId, cwd }) => {
     console.log('Creating flux process for tab:', tabId);
-    spawnFluxForTab(tabId, cwd);
+    await spawnFluxForTab(tabId, cwd);
   });
 
   ipcMain.on('flux-command', (event, { tabId, command }) => {
@@ -208,9 +253,9 @@ function createWindow () {
       fluxData.process.kill('SIGINT');
       
       // Wait a bit for process to die, then respawn in same directory
-      setTimeout(() => {
+      setTimeout(async () => {
         console.log(`Respawning flux process for tab ${tabId} in ${savedCwd}`);
-        spawnFluxForTab(tabId, savedCwd);
+        await spawnFluxForTab(tabId, savedCwd);
         if (!win.isDestroyed()) {
           win.webContents.send('flux-cancelled', { tabId });
         }
@@ -520,7 +565,153 @@ ipcMain.handle('get-codebase-graph', async (event, tabId) => {
   });
 });
 
-app.whenReady().then(createWindow);
+// ========================================
+// SETTINGS IPC HANDLERS
+// ========================================
+
+// Get all settings
+ipcMain.handle('settings:get', async () => {
+  if (!settingsManager) {
+    settingsManager = new SettingsManager();
+  }
+  return settingsManager.getSettings();
+});
+
+// Get API key (masked)
+ipcMain.handle('settings:getApiKey', async (event, provider) => {
+  if (!settingsManager) {
+    settingsManager = new SettingsManager();
+  }
+  return settingsManager.getApiKey(provider, true);
+});
+
+// Set API key
+ipcMain.handle('settings:setApiKey', async (event, { provider, key }) => {
+  if (!settingsManager) {
+    settingsManager = new SettingsManager();
+  }
+  try {
+    return settingsManager.setApiKey(provider, key);
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Set provider
+ipcMain.handle('settings:setProvider', async (event, provider) => {
+  if (!settingsManager) {
+    settingsManager = new SettingsManager();
+  }
+  try {
+    return settingsManager.setProvider(provider);
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Set model
+ipcMain.handle('settings:setModel', async (event, model) => {
+  if (!settingsManager) {
+    settingsManager = new SettingsManager();
+  }
+  return settingsManager.setModel(model);
+});
+
+// Update LLM settings
+ipcMain.handle('settings:setLLMSettings', async (event, settings) => {
+  if (!settingsManager) {
+    settingsManager = new SettingsManager();
+  }
+  return settingsManager.setLLMSettings(settings);
+});
+
+// Update appearance
+ipcMain.handle('settings:setAppearance', async (event, appearance) => {
+  if (!settingsManager) {
+    settingsManager = new SettingsManager();
+  }
+  return settingsManager.setAppearance(appearance);
+});
+
+// Update experimental features
+ipcMain.handle('settings:setExperimental', async (event, features) => {
+  if (!settingsManager) {
+    settingsManager = new SettingsManager();
+  }
+  return settingsManager.setExperimental(features);
+});
+
+// Test API connection
+ipcMain.handle('settings:testConnection', async (event, provider) => {
+  if (!settingsManager) {
+    settingsManager = new SettingsManager();
+  }
+  return await settingsManager.testConnection(provider);
+});
+
+// Get available models
+ipcMain.handle('settings:getAvailableModels', async (event, provider) => {
+  if (!settingsManager) {
+    settingsManager = new SettingsManager();
+  }
+  return settingsManager.getAvailableModels(provider);
+});
+
+// Reset to defaults
+ipcMain.handle('settings:reset', async () => {
+  if (!settingsManager) {
+    settingsManager = new SettingsManager();
+  }
+  return settingsManager.resetToDefaults();
+});
+
+// Get settings file path
+ipcMain.handle('settings:getPath', async () => {
+  if (!settingsManager) {
+    settingsManager = new SettingsManager();
+  }
+  return settingsManager.getSettingsPath();
+});
+
+// Get best working provider
+ipcMain.handle('settings:getBestWorkingProvider', async () => {
+  if (!settingsManager) {
+    settingsManager = new SettingsManager();
+  }
+  return await settingsManager.getBestWorkingProvider();
+});
+
+// IPC handler to open settings window
+ipcMain.on('open-settings', () => {
+  const settingsWindow = new BrowserWindow({
+    width: 900,
+    height: 700,
+    backgroundColor: '#1a1b26',
+    webPreferences: {
+      preload: path.join(__dirname, '..', 'preload', 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true
+    },
+    title: 'Flux Settings',
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false
+  });
+  
+  settingsWindow.loadFile(path.join(__dirname, '..', 'renderer', 'settings.html'));
+  
+  // Optional: Open dev tools for debugging
+  if (process.argv.includes('--dev')) {
+    settingsWindow.webContents.openDevTools();
+  }
+});
+
+app.whenReady().then(() => {
+  // Initialize settings manager
+  settingsManager = new SettingsManager();
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   // Kill all flux processes
