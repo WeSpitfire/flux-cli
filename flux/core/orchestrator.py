@@ -232,7 +232,7 @@ Plan:
 Now create a plan for the user's goal."""
 
         # Ask LLM to create plan
-        response = await self.llm.send_message(
+        response = self.llm.send_message(
             message=f"Goal: {goal}",
             system_prompt=system_prompt,
             tools=[]  # No tool use, just JSON response
