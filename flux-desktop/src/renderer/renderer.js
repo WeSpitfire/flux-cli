@@ -439,9 +439,12 @@ function executeCommand(command) {
   activeTerminal.terminal.writeln('');
   activeTerminal.terminal.writeln('\x1b[2m' + '─'.repeat(termWidth) + '\x1b[0m');
   activeTerminal.terminal.writeln('');
-  activeTerminal.terminal.write('  \x1b[1;38;5;147m$\x1b[0m \x1b[1;38;5;153m');
+  // User input header
+  activeTerminal.terminal.writeln('\x1b[38;5;110m╭─ \x1b[1;38;5;153m👤 You\x1b[0m\x1b[38;5;110m ───────────────────────────────────────────────\x1b[0m');
+  activeTerminal.terminal.write('\x1b[38;5;153m');
   activeTerminal.terminal.write(command);
   activeTerminal.terminal.writeln('\x1b[0m');
+  activeTerminal.terminal.writeln('\x1b[38;5;110m╰────────────────────────────────────────────────────╯\x1b[0m');
   activeTerminal.terminal.writeln('');
   activeTerminal.terminal.scrollToBottom();
   

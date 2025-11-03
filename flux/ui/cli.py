@@ -237,8 +237,13 @@ class CLI:
 
         while True:
             try:
-                # Get user input (always show normal prompt)
-                query = Prompt.ask(f"\n[bold green]You[/bold green]")
+                # Get user input (show prompt only in real terminal, not when piped from desktop app)
+                if self._enable_paste_mode:
+                    # Real terminal - show fancy prompt
+                    query = Prompt.ask(f"\n[bold green]You[/bold green]")
+                else:
+                    # Piped/desktop mode - just read from stdin without showing prompt
+                    query = input()
                 
                 # Decode newline placeholders from desktop app
                 if '<<<NEWLINE>>>' in query:
@@ -892,8 +897,9 @@ class CLI:
         # Start new workflow for each query
         self.workflow.start_workflow()
         
-        # Show thinking indicator
-        self.console.print("\n[bold cyan]Flux[/bold cyan]:", end=" ")
+        # Show thinking indicator (only in real terminal, not in desktop/piped mode)
+        if sys.stdin.isatty():
+            self.console.print("\n[bold cyan]Flux[/bold cyan]:", end=" ")
         
         response_text = ""
         tool_uses = []
@@ -1200,7 +1206,9 @@ class CLI:
     async def continue_after_tools(self):
         """Continue conversation after tool execution."""
         try:
-            self.console.print("\n[bold cyan]Flux[/bold cyan]:", end=" ")
+            # Show thinking indicator (only in real terminal, not in desktop/piped mode)
+            if sys.stdin.isatty():
+                self.console.print("\n[bold cyan]Flux[/bold cyan]:", end=" ")
             
             response_text = ""
             tool_uses = []
