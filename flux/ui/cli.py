@@ -1118,9 +1118,11 @@ class CLI:
         # Avoid orchestration for questions and reviews
         question_patterns = [
             r'^(what|why|how|when|where|who)',
+            r'^(do|does|can|could|would|should|is|are)',
             r'(explain|describe|tell me|show me)',
             r'^(review|look|check|examine|see)',
-            r'(please|just|simply)\s+(review|look|check)'
+            r'(please|just|simply)\s+(review|look|check)',
+            r'\?\s*$'  # Ends with question mark
         ]
 
         for pattern in question_patterns:
