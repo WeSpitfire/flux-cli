@@ -554,6 +554,19 @@ class CLI:
                             self.console.print(f"  [{event['timestamp']}] {event['type']}: {event.get('message', 'N/A')}")
                     continue
 
+                # -- Auto-approve toggle --
+                if query.lower() == '/auto-approve':
+                    # Toggle auto-approve mode
+                    self.approval_manager.auto_approve = not self.approval_manager.auto_approve
+                    status = "enabled" if self.approval_manager.auto_approve else "disabled"
+                    color = "green" if self.approval_manager.auto_approve else "yellow"
+                    self.console.print(f"[{color}]Auto-approve {status}[/{color}]")
+                    if self.approval_manager.auto_approve:
+                        self.console.print("[dim]All file changes will be applied automatically without prompts[/dim]")
+                    else:
+                        self.console.print("[dim]You'll be prompted to approve each file change[/dim]")
+                    continue
+
                 # -- Smart suggestions command --
                 if query.lower() == '/suggest':
                     # Show contextual command suggestions
@@ -611,6 +624,7 @@ class CLI:
                         "\n[bold cyan]Workflow & Approval:[/bold cyan]\n"
                         "  [green]/workflow[/green] - Show workflow status\n"
                         "  [green]/approval[/green] - Show approval statistics\n"
+                        "  [green]/auto-approve[/green] - Toggle auto-approve mode (skip file change prompts)\n"
                         "\n[bold cyan]Codebase Intelligence:[/bold cyan]\n"
                         "  [green]/index[/green] - Build semantic codebase graph\n"
                         "  [green]/related <file|query>[/green] - Find related files\n"
