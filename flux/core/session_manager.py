@@ -482,3 +482,105 @@ class SessionManager:
         conn.close()
 
         return len(session_ids)
+
+    def detect_patterns(self) -> List[str]:
+        """Detect common user behavior patterns from session history.
+
+        Returns:
+            List of detected pattern names
+        """
+        if not self.current_session:
+            return []
+
+        patterns = []
+
+        # Get recent events (last 20)
+        recent_events = self.current_session.events[-20:] if self.current_session.events else []
+
+        if len(recent_events) < 3:
+            return patterns
+
+        # Extract event types
+        event_types = [e.event_type for e in recent_events]
+
+        # Pattern 1: edit -> test -> commit
+        if self._has_sequence(event_types, [EventType.FILE_EDIT, EventType.TEST_RUN, EventType.COMMAND]):
+            patterns.append('edit-test-commit')
+
+        # Pattern 2: test failure -> fix cycle
+        test_events = [e for e in recent_events if e.event_type == EventType.TEST_RUN]
+        file_edits = [e for e in recent_events if e.event_type == EventType.FILE_EDIT]
+
+        if test_events and file_edits:
+            # Check if there was a test failure followed by file edits
+            last_test = test_events[-1] if test_events else None
+            if last_test and last_test.data.get('failed', 0) > 0:
+                # Check if file edits happened after the test failure
+                test_idx = recent_events.index(last_test)
+                edits_after = [e for e in recent_events[test_idx:] if e.event_type == EventType.FILE_EDIT]
+                if edits_after:
+                    patterns.append('fix-cycle')
+
+        # Pattern 3: workflow execution pattern
+        workflow_events = [e for e in recent_events if e.event_type == EventType.WORKFLOW_EXECUTED]
+        if len(workflow_events) >= 2:
+            patterns.append('workflow-user')
+
+        return patterns
+
+    def _has_sequence(self, event_types: List[EventType], sequence: List[EventType]) -> bool:
+        """Check if a sequence of event types exists in the event list.
+
+        Args:
+            event_types: List of event types to search
+            sequence: Sequence pattern to find
+
+        Returns:
+            True if sequence found
+        """
+        if len(sequence) > len(event_types):
+            return False
+
+        for i in range(len(event_types) - len(sequence) + 1):
+            if event_types[i:i+len(sequence)] == sequence:
+                return True
+        return False
+
+    def get_last_workflow(self) -> Optional[str]:
+        """Get the name of the last executed workflow.
+
+        Returns:
+            Workflow name or None
+        """
+        if not self.current_session:
+            return None
+
+        # Search backwards through events for last workflow
+        for event in reversed(self.current_session.events):
+            if event.event_type == EventType.WORKFLOW_EXECUTED:
+                return event.data.get('workflow')
+
+        return None
+
+    def get_recent_events(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get recent events from current session.
+
+        Args:
+            limit: Maximum number of events to return
+
+        Returns:
+            List of event dictionaries
+        """
+        if not self.current_session:
+            return []
+
+        recent = self.current_session.events[-limit:] if self.current_session.events else []
+
+        return [
+            {
+                'type': e.event_type.value,
+                'timestamp': e.timestamp,
+                'data': e.data
+            }
+            for e in recent
+        ]

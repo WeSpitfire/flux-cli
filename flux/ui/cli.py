@@ -158,6 +158,16 @@ class CLI:
         self.workflow_executor = WorkflowExecutor(self.orchestrator)
         self.workflow_executor.add_notification_callback(self._print_monitor_notification)
 
+        # Initialize Command Suggestion Engine
+        from flux.core.command_suggestions import CommandSuggestionEngine
+        self.command_suggester = CommandSuggestionEngine(
+            session_manager=self.session_manager,
+            state_tracker=self.state_tracker,
+            git=self.git,
+            proactive_monitor=self.proactive_monitor,
+            workflow_manager=self.workflow_manager
+        )
+
     async def build_codebase_graph(self) -> None:
         """Build the codebase semantic graph (runs in background)."""
         if self._graph_building or self.codebase_graph:
@@ -263,6 +273,10 @@ class CLI:
 
         while True:
             try:
+                # Show contextual suggestions before prompt (only in interactive mode)
+                if self._enable_paste_mode:
+                    self._maybe_show_suggestions()
+
                 # Get user input (show prompt only in real terminal, not when piped from desktop app)
                 if self._enable_paste_mode:
                     # Real terminal - show fancy prompt
@@ -540,6 +554,19 @@ class CLI:
                             self.console.print(f"  [{event['timestamp']}] {event['type']}: {event.get('message', 'N/A')}")
                     continue
 
+                # -- Smart suggestions command --
+                if query.lower() == '/suggest':
+                    # Show contextual command suggestions
+                    suggestions = self.command_suggester.get_suggestions(max_suggestions=5)
+                    if suggestions:
+                        self.console.print("\n[bold]💡 Suggested Commands:[/bold]")
+                        for i, sug in enumerate(suggestions, 1):
+                            self.console.print(f"  {i}. {sug.format()}")
+                        self.console.print()
+                    else:
+                        self.console.print("\n[dim]No suggestions at the moment - you're doing great! 🚀[/dim]\n")
+                    continue
+
                 if query.lower() == '/help':
                     help_text = (
                         "[bold]Available Commands:[/bold]\n"
@@ -571,6 +598,7 @@ class CLI:
                         "  [green]/watch <type>[/green] - Start monitoring (tests/lint/build/files/git/all)\n"
                         "  [green]/watch stop[/green] - Stop all monitors\n"
                         "  [green]/status[/green] - Show monitor status\n"
+                        "  [green]/suggest[/green] - Get smart command suggestions based on context\n"
                         "\n[bold cyan]Undo Commands:[/bold cyan]\n"
                         "  [green]/undo[/green] - Undo last file operation\n"
                         "  [green]/undo-history[/green] - Show undo history\n"
@@ -1634,6 +1662,45 @@ class CLI:
     def _print_monitor_notification(self, message: str):
         """Callback for proactive monitor notifications."""
         self.console.print(message)
+
+    def _maybe_show_suggestions(self):
+        """Show smart suggestions if there are any relevant ones.
+
+        Only shows suggestions occasionally to avoid spam:
+        - After every 3-5 commands
+        - When high-confidence suggestions exist (> 0.8)
+        """
+        # Rate limiting - don't show too often
+        if not hasattr(self, '_suggestion_counter'):
+            self._suggestion_counter = 0
+
+        self._suggestion_counter += 1
+
+        # Only check every 3-5 commands (with some randomness)
+        import random
+        check_interval = random.randint(3, 5)
+
+        if self._suggestion_counter < check_interval:
+            return
+
+        # Reset counter
+        self._suggestion_counter = 0
+
+        # Get suggestions
+        try:
+            suggestions = self.command_suggester.get_suggestions(max_suggestions=2)
+
+            # Only show high-confidence suggestions automatically
+            high_conf_suggestions = [s for s in suggestions if s.confidence >= 0.80]
+
+            if high_conf_suggestions:
+                self.console.print("\n[dim]💡 Suggestions:[/dim]")
+                for sug in high_conf_suggestions:
+                    self.console.print(f"  [dim]{sug.format()}[/dim]")
+                self.console.print("[dim]Type /suggest for more suggestions[/dim]")
+        except Exception:
+            # Silently fail - suggestions are not critical
+            pass
 
     def _show_token_usage(self):
         """Display token usage statistics."""
