@@ -150,14 +150,35 @@ class AnthropicProvider(BaseLLMProvider):
         })
 
     def add_tool_result(self, tool_use_id: str, result: Any):
-        """Add tool result to conversation history."""
+        """Add tool result to conversation history.
+
+        For small models like Haiku, truncate large tool results to prevent context overflow.
+        """
+        # Serialize result
+        if isinstance(result, str):
+            result_str = result
+        else:
+            result_str = json.dumps(result)
+
+        # For small context models (Haiku), aggressively truncate large results
+        is_small_model = "haiku" in self.config.model.lower() or "gpt-3.5" in self.config.model.lower()
+        max_result_size = 2000 if is_small_model else 10000
+
+        if len(result_str) > max_result_size:
+            # Keep error messages, truncate successful results
+            if isinstance(result, dict) and "error" not in result_str.lower():
+                result_str = result_str[:max_result_size] + f"\n\n[TRUNCATED - {len(result_str) - max_result_size:,} chars omitted for context management]"
+            elif not isinstance(result, dict):
+                # Plain string result
+                result_str = result_str[:max_result_size] + f"\n\n[TRUNCATED - {len(result_str) - max_result_size:,} chars omitted]"
+
         self.conversation_history.append({
             "role": "user",
             "content": [
                 {
                     "type": "tool_result",
                     "tool_use_id": tool_use_id,
-                    "content": json.dumps(result) if not isinstance(result, str) else result
+                    "content": result_str
                 }
             ]
         })

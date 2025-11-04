@@ -67,8 +67,9 @@ class NaturalLanguageParser:
             (r'\b(find|show|search|look\s+for)\s+related\s+(files?\s+)?(.+)', '/related', lambda m: m.group(3)),
             (r'\b(show|view|display|see|check)\s+(the\s+)?architecture\b', '/architecture', None),
             (r'\b(preview|show|check)\s+(the\s+)?impact\s+of\s+(.+)', '/preview', lambda m: m.group(3)),
-            (r'\b(suggest|recommend|advise)\s+(something|improvements?)?\b', '/suggest', None),
-            (r'\bgive\s+me\s+suggestions\b', '/suggest', None),
+            # DISABLED: Too aggressive, blocks AI feature analysis
+            # (r'\b(suggest|recommend|advise)\s+(something|improvements?)?\b', '/suggest', None),
+            # (r'\bgive\s+me\s+suggestions\b', '/suggest', None),
 
             # Workspace
             (r'\b(show|view|display|list|see|check)\s+(all\s+)?(the\s+)?sessions?\b', '/sessions', None),

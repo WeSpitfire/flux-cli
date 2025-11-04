@@ -14,6 +14,24 @@ class BaseLLMProvider(ABC):
         self.total_input_tokens = 0
         self.total_output_tokens = 0
 
+    def estimate_conversation_tokens(self) -> int:
+        """Estimate token count of current conversation history.
+
+        Returns approximate token count (chars / 3) for context management.
+        This is different from total_input_tokens which tracks API usage.
+        """
+        total_chars = 0
+        for msg in self.conversation_history:
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                total_chars += len(content)
+            elif isinstance(content, list):
+                import json
+                for block in content:
+                    if isinstance(block, dict):
+                        total_chars += len(json.dumps(block))
+        return total_chars // 3  # Conservative estimate: 3 chars per token
+
     @abstractmethod
     async def send_message(
         self,

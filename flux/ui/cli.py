@@ -300,12 +300,25 @@ class CLI:
                     self._maybe_show_suggestions()
 
                 # Auto-clear context when it gets too full (invisible to user)
-                usage = self.llm.get_token_usage()
-                usage_percent = (usage['total_tokens'] / self.config.max_history) * 100 if self.config.max_history > 0 else 0
+                # CRITICAL FIX: Check conversation history size, NOT cumulative API usage!
+                conversation_tokens = self.llm.estimate_conversation_tokens()
+                usage_percent = (conversation_tokens / self.config.max_history) * 100 if self.config.max_history > 0 else 0
+
+                # Emergency circuit breaker: Hard stop at 150% to prevent rate limit errors
+                if conversation_tokens > (self.config.max_history * 1.5):
+                    # CRITICAL: Context has grown way too large, clear immediately
+                    current_task = self.memory.state.current_task
+                    self.llm.clear_history()
+                    if current_task:
+                        self.memory.state.current_task = current_task
+                    self.console.print(
+                        f"[bold red]🚨 Emergency context clear ({conversation_tokens:,} tokens exceeded limits)[/bold red]"
+                    )
+                    continue  # Skip this iteration, show prompt again
 
                 if usage_percent >= 90:
                     # Auto-clear to prevent errors - but preserve important context
-                    old_token_count = usage['total_tokens']
+                    old_token_count = conversation_tokens
 
                     # Save current task before clearing
                     current_task = self.memory.state.current_task
@@ -319,7 +332,7 @@ class CLI:
                         self.memory.state.current_task = current_task
 
                     self.console.print(
-                        f"[dim]✨ Context automatically refreshed to prevent overflow ({old_token_count:,} → 0 tokens)[/dim]"
+                        f"[dim]✨ Context automatically refreshed ({old_token_count:,} → 0 tokens)[/dim]"
                     )
 
                 # BLOCK INPUT if LLM is processing
@@ -373,12 +386,14 @@ class CLI:
                 if query.lower() == '/history':
                     usage = self.llm.get_token_usage()
                     history_len = len(self.llm.conversation_history)
+                    conversation_tokens = self.llm.estimate_conversation_tokens()
+                    usage_percent = (conversation_tokens / self.config.max_history) * 100 if self.config.max_history > 0 else 0
+
                     self.console.print(
                         f"\n[bold]💬 Conversation History:[/bold]\n"
                         f"  Messages: [cyan]{history_len}[/cyan]\n"
-                        f"  Input tokens: [cyan]{usage['input_tokens']:,}[/cyan]\n"
-                        f"  Output tokens: [cyan]{usage['output_tokens']:,}[/cyan]\n"
-                        f"  Total tokens: [cyan]{usage['total_tokens']:,}[/cyan]\n"
+                        f"  Current context: [cyan]{conversation_tokens:,}[/cyan] / [dim]{self.config.max_history:,}[/dim] tokens ([cyan]{usage_percent:.1f}%[/cyan])\n"
+                        f"  API usage (cumulative): [dim]{usage['total_tokens']:,} tokens[/dim]\n"
                         f"  Estimated cost: [green]${usage['estimated_cost']:.4f}[/green]\n"
                     )
                     continue
@@ -2499,7 +2514,8 @@ class CLI:
         suggestions = self.suggestions_engine.get_suggestions(max_suggestions=10, min_priority=Priority.LOW)
 
         if not suggestions:
-            self.console.print("\n[green]✓ No suggestions - everything looks good![/green]\n")
+            self.console.print("\n[dim]No structural suggestions detected.[/dim]")
+            self.console.print("[dim]For deeper feature analysis, ask: 'Review this codebase and suggest specific improvements'[/dim]\n")
             return
 
         # Display suggestions
