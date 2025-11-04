@@ -1415,23 +1415,26 @@ class CLI:
             query: User's query or question
         """
         # Check token usage and warn if approaching limits
-        usage = self.llm.get_token_usage()
+        # FIXED: Use conversation_tokens (current context) not total_tokens (cumulative API usage)
+        conversation_tokens = self.llm.estimate_conversation_tokens()
         max_tokens = getattr(self.config, 'max_history', 8000)
-        usage_percent = (usage['total_tokens'] / max_tokens) * 100 if max_tokens > 0 else 0
+        usage_percent = (conversation_tokens / max_tokens) * 100 if max_tokens > 0 else 0
+
+        usage = self.llm.get_token_usage()
 
         # Always show compact token status
-        if usage['total_tokens'] > 0:
+        if conversation_tokens > 500:
             color = "red" if usage_percent > 90 else "yellow" if usage_percent > 80 else "dim cyan"
             self.console.print(
-                f"[{color}]📊 Context: {usage['total_tokens']:,}/{max_tokens:,} tokens ({usage_percent:.0f}%) | "
+                f"[{color}]📊 Context: {conversation_tokens:,}/{max_tokens:,} tokens ({usage_percent:.0f}%) | "
                 f"Cost: ${usage['estimated_cost']:.4f}[/{color}]"
             )
 
         if usage_percent > 90:
-            self.console.print("[bold red]⚠ WARNING: Conversation is at 90%+ of token limit![/bold red]")
+            self.console.print("[bold red]⚠ WARNING: Context is at 90%+ of limit![/bold red]")
             self.console.print("[yellow]Strongly recommend using /clear to avoid rate limit errors[/yellow]\n")
         elif usage_percent > 80:
-            self.console.print(f"[yellow]⚠ Token usage at {usage_percent:.0f}% - consider using /clear soon[/yellow]\n")
+            self.console.print(f"[yellow]⚠ Context at {usage_percent:.0f}% - consider using /clear soon[/yellow]\n")
 
         # Start new workflow for each query
         self.workflow.start_workflow()

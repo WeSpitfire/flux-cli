@@ -7,6 +7,7 @@ from anthropic.types import MessageStreamEvent, ContentBlock, ToolUseBlock, Text
 
 from flux.core.config import Config
 from flux.core.context_manager import ContextManager
+from flux.core.rate_limiter import RateLimiter
 from flux.llm.base_provider import BaseLLMProvider
 
 
@@ -28,6 +29,14 @@ class AnthropicProvider(BaseLLMProvider):
         self.context_manager = ContextManager(max_context_tokens=max_history)
         self.current_file_context: Optional[str] = None
         self.pruning_stats: List[Dict[str, Any]] = []
+
+        # Initialize rate limiter with conservative limits
+        # Anthropic tier 1: 50K tokens/min, tier 2: 100K tokens/min
+        # Use conservative limits that work for all tiers
+        self.rate_limiter = RateLimiter(
+            tokens_per_minute=40000,  # Conservative, leaves buffer
+            requests_per_minute=45     # Under most tier limits
+        )
 
     async def send_message(
         self,
@@ -76,6 +85,15 @@ class AnthropicProvider(BaseLLMProvider):
 
         if tools:
             request_args["tools"] = tools
+
+        # RATE LIMITING: Estimate tokens and wait if needed
+        # Estimate: message + system prompt + tools schema
+        estimated_tokens = (len(message) + len(system_prompt)) // 3
+        if tools:
+            estimated_tokens += len(str(tools)) // 3
+
+        # Wait for rate limiter to allow request
+        await self.rate_limiter.acquire(estimated_tokens)
 
         # Stream response
         assistant_message_content = []

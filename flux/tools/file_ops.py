@@ -14,11 +14,13 @@ from rich.console import Console
 
 
 def validate_file_path(path_str: str, cwd: Path, operation: str = "access") -> Tuple[bool, Optional[str]]:
-    """Validate a file path for safety.
+    """Validate a file path for safety with strict project directory enforcement.
+
+    SECURITY: Path MUST be within project directory to prevent data leakage.
 
     Args:
         path_str: The path string to validate
-        cwd: Current working directory
+        cwd: Current working directory (project root)
         operation: Type of operation (read, write, delete)
 
     Returns:
@@ -32,35 +34,59 @@ def validate_file_path(path_str: str, cwd: Path, operation: str = "access") -> T
             path = cwd / path
         path = path.resolve()
 
-        # Check for path traversal attempts that escape project
-        # Allow going outside cwd but flag suspicious patterns
-        path_str_lower = str(path).lower()
-
-        # Block access to sensitive system directories
-        dangerous_paths = [
-            '/etc/passwd', '/etc/shadow', '/etc/sudoers',
-            '/boot', '/sys', '/proc',
-            'c:\\windows\\system32', 'c:\\windows\\syswow64',
-        ]
-
-        for dangerous in dangerous_paths:
-            if dangerous.lower() in path_str_lower:
-                return False, f"Access to system path '{dangerous}' is not allowed for security reasons."
+        # CRITICAL SECURITY: Path MUST be within project directory
+        # Use relative_to() which raises ValueError if path escapes cwd
+        try:
+            path.relative_to(cwd)
+        except ValueError:
+            return False, (
+                f"Path '{path}' is outside project directory '{cwd}'. "
+                f"For security, Flux can only access files within the project. "
+                f"This prevents accidental access to sensitive system files or credentials."
+            )
 
         # Check for null bytes (path injection)
         if '\x00' in path_str:
             return False, "Path contains null byte - potential path injection attack."
 
-        # Warn about paths with unusual characters
+        # Check for unusual characters that might indicate an attack
         if re.search(r'[<>:"|?*]', path_str) and operation == "write":
             return False, f"Path contains invalid characters for {operation} operation."
 
+        # Additional checks for sensitive files WITHIN project
+        sensitive_patterns = [
+            '.env', '.env.local', '.env.production',
+            'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519',  # SSH keys
+            'credentials', 'secrets', 'token', 'password',
+            '.aws/credentials', '.ssh/config',
+        ]
+
+        path_lower = str(path).lower()
+        for pattern in sensitive_patterns:
+            if pattern in path_lower:
+                # Allow read but warn, block write to sensitive files
+                if operation == "write":
+                    return False, (
+                        f"Cannot write to sensitive file '{path.name}' "
+                        f"(detected pattern: {pattern}). This is blocked for security."
+                    )
+                elif operation == "delete":
+                    return False, (
+                        f"Cannot delete sensitive file '{path.name}' "
+                        f"(detected pattern: {pattern}). This is blocked for security."
+                    )
+                # For read operations, allow but it will be logged
+
         # For delete operations, be extra careful
         if operation == "delete":
-            # Don't allow deleting root or critical directories
-            critical_dirs = ['/', '/home', '/usr', '/var', str(Path.home())]
-            if str(path) in critical_dirs:
-                return False, f"Cannot delete critical directory: {path}"
+            # Don't allow deleting critical project files
+            critical_files = [
+                'package.json', 'Cargo.toml', 'pyproject.toml',
+                'go.mod', 'pom.xml', 'build.gradle',
+                '.git', '.gitignore', 'README.md'
+            ]
+            if path.name in critical_files:
+                return False, f"Cannot delete critical project file: {path.name}"
 
         return True, None
 
@@ -258,7 +284,7 @@ ON ERROR: Use list_files or find_files to discover correct paths."""
                                 # Use large file handler for analysis and guidance
                                 handler = get_handler()
                                 guide = handler.get_reading_guide(path)
-                                
+
                                 content = f"""File: {path.name} (unable to parse)
 
 This file has {lines_count} lines, which is too large to read at once.
