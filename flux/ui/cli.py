@@ -6,7 +6,6 @@ from typing import Optional, List
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
-from rich.text import Text
 
 from flux.core.config import Config
 from flux.core.project import ProjectDetector, ProjectInfo
@@ -45,6 +44,7 @@ from flux.tools.ast_edit import ASTEditTool
 from flux.tools.validation import ValidationTool
 from flux.tools.preview import PreviewEditTool
 from flux.tools.line_insert import InsertAtLineTool
+from flux.ui.display_manager import DisplayManager
 
 
 class CLI:
@@ -54,7 +54,11 @@ class CLI:
         """Initialize CLI."""
         self.config = config
         self.cwd = cwd
-        # Force UTF-8 encoding for console to handle emojis in piped stdout
+
+        # Initialize display manager
+        self.display = DisplayManager()
+
+        # Keep console for backward compatibility (will be removed in Phase 5)
         import sys
         self.console = Console(file=sys.stdout, force_terminal=False)
         self.llm = create_provider(config)
@@ -244,38 +248,27 @@ class CLI:
 
     def print_banner(self):
         """Print Flux banner."""
-        banner = Text()
-        banner.append("╔═══════════════════════════════╗\n", style="bold blue")
-        banner.append("║   ", style="bold blue")
-        banner.append("FLUX", style="bold cyan")
-        banner.append(" - AI Dev Assistant   ║\n", style="bold blue")
-        banner.append("╚═══════════════════════════════╝", style="bold blue")
-        self.console.print(banner)
-        self.console.print(f"Working directory: [cyan]{self.cwd}[/cyan]")
-        self.console.print(f"Provider: [cyan]{self.config.provider}[/cyan]")
-        self.console.print(f"Model: [cyan]{self.config.model}[/cyan]")
-
-        # Show project info if detected
-        if self.project_info:
-            self.console.print(f"Project: [green]{self.project_info.name}[/green] ([cyan]{self.project_info.project_type}[/cyan])")
-            if self.project_info.frameworks:
-                self.console.print(f"Tech: [dim]{', '.join(self.project_info.frameworks)}[/dim]")
-
         # Load/resume session
         last_session = self.session_manager.load_last_session()
+        session_summary = None
         if last_session:
-            # Display session summary
-            summary = self.session_manager.get_session_summary(last_session)
-            self.console.print("\n" + summary)
+            session_summary = self.session_manager.get_session_summary(last_session)
         else:
-            # Start new session
             self.session_manager.start_new_session()
 
-        # Show memory/resume info (keep for backward compatibility)
+        # Get current task for legacy support
+        current_task = None
         if self.memory.state.current_task and not last_session:
-            self.console.print(f"Task: [yellow]{self.memory.state.current_task}[/yellow]")
+            current_task = self.memory.state.current_task
 
-        self.console.print()
+        # Delegate to display manager
+        self.display.print_banner(
+            cwd=self.cwd,
+            config=self.config,
+            project_info=self.project_info,
+            session_summary=session_summary,
+            current_task=current_task
+        )
 
     async def run_interactive(self):
         """Run interactive REPL mode."""
@@ -291,7 +284,7 @@ class CLI:
         self._compose_buffer = []  # type: list[str]
         self._last_input_time = 0.0  # Track timing for paste detection
 
-        self.console.print("[dim]Type 'exit' or 'quit' to exit[/dim]\n")
+        self.display.print_help_text()
 
         while True:
             try:
@@ -311,9 +304,7 @@ class CLI:
                     self.llm.clear_history()
                     if current_task:
                         self.memory.state.current_task = current_task
-                    self.console.print(
-                        f"[bold red]🚨 Emergency context clear ({conversation_tokens:,} tokens exceeded limits)[/bold red]"
-                    )
+                    self.display.print_emergency_context_clear(conversation_tokens)
                     continue  # Skip this iteration, show prompt again
 
                 if usage_percent >= 90:
@@ -331,27 +322,20 @@ class CLI:
                         # Add it back as system context (not as a user message)
                         self.memory.state.current_task = current_task
 
-                    self.console.print(
-                        f"[dim]✨ Context automatically refreshed ({old_token_count:,} → 0 tokens)[/dim]"
-                    )
+                    self.display.print_context_cleared(old_token_count)
 
                 # BLOCK INPUT if LLM is processing
                 if self._llm_processing:
-                    self.console.print("[yellow]⏳ Please wait for current operation to complete, or press Ctrl+C to cancel[/yellow]")
+                    self.display.print_processing_blocker()
                     # Show a persistent indicator until processing completes
                     import asyncio
                     while self._llm_processing:
                         await asyncio.sleep(0.1)
                     # After processing completes, show prompt again
-                    self.console.print("[dim]✓ Ready for next command[/dim]")
+                    self.display.print_processing_ready()
 
-                # Get user input (show prompt only in real terminal, not when piped from desktop app)
-                if self._enable_paste_mode:
-                    # Real terminal - show fancy prompt
-                    query = Prompt.ask(f"\n[bold green]You[/bold green]")
-                else:
-                    # Piped/desktop mode - just read from stdin without showing prompt
-                    query = input()
+                # Get user input
+                query = self.display.prompt_user(enable_paste_mode=self._enable_paste_mode)
 
                 # Decode newline placeholders from desktop app
                 if '<<<NEWLINE>>>' in query:
@@ -362,7 +346,7 @@ class CLI:
                 if nl_result:
                     command, args = nl_result
                     # Show what we interpreted
-                    self.console.print(f"[dim]→ Interpreted as: {command} {args or ''}[/dim]")
+                    self.display.print_nl_command_interpretation(command, args)
                     # Rewrite query as the slash command
                     if args:
                         query = f"{command} {args}"
@@ -370,31 +354,31 @@ class CLI:
                         query = command
 
                 if query.lower() in ['exit', 'quit', 'q']:
-                    self.console.print("\n[cyan]Goodbye![/cyan]")
+                    self.display.print_goodbye()
                     break
 
                 if query.lower() == '/clear':
                     self.llm.clear_history()
-                    self.console.print("[green]✓ Conversation history cleared[/green]")
+                    self.display.print_success("✓ Conversation history cleared")
                     # Clear compose buffer too
                     if getattr(self, "_compose_mode", False):
                         self._compose_mode = False
                         self._compose_buffer = []
-                        self.console.print("[dim]Paste mode cancelled[/dim]")
+                        self.display.print_dim("Paste mode cancelled")
                     continue
 
                 if query.lower() == '/history':
                     usage = self.llm.get_token_usage()
                     history_len = len(self.llm.conversation_history)
                     conversation_tokens = self.llm.estimate_conversation_tokens()
-                    usage_percent = (conversation_tokens / self.config.max_history) * 100 if self.config.max_history > 0 else 0
+                    max_tokens = self.config.max_history
 
-                    self.console.print(
-                        f"\n[bold]💬 Conversation History:[/bold]\n"
-                        f"  Messages: [cyan]{history_len}[/cyan]\n"
-                        f"  Current context: [cyan]{conversation_tokens:,}[/cyan] / [dim]{self.config.max_history:,}[/dim] tokens ([cyan]{usage_percent:.1f}%[/cyan])\n"
-                        f"  API usage (cumulative): [dim]{usage['total_tokens']:,} tokens[/dim]\n"
-                        f"  Estimated cost: [green]${usage['estimated_cost']:.4f}[/green]\n"
+                    self.display.print_history_stats(
+                        history_len=history_len,
+                        conversation_tokens=conversation_tokens,
+                        max_tokens=max_tokens,
+                        cumulative_tokens=usage['total_tokens'],
+                        estimated_cost=usage['estimated_cost']
                     )
                     continue
 
@@ -1423,25 +1407,20 @@ class CLI:
         usage = self.llm.get_token_usage()
 
         # Always show compact token status
-        if conversation_tokens > 500:
-            color = "red" if usage_percent > 90 else "yellow" if usage_percent > 80 else "dim cyan"
-            self.console.print(
-                f"[{color}]📊 Context: {conversation_tokens:,}/{max_tokens:,} tokens ({usage_percent:.0f}%) | "
-                f"Cost: ${usage['estimated_cost']:.4f}[/{color}]"
-            )
+        self.display.print_token_usage(
+            conversation_tokens=conversation_tokens,
+            max_tokens=max_tokens,
+            estimated_cost=usage['estimated_cost']
+        )
 
-        if usage_percent > 90:
-            self.console.print("[bold red]⚠ WARNING: Context is at 90%+ of limit![/bold red]")
-            self.console.print("[yellow]Strongly recommend using /clear to avoid rate limit errors[/yellow]\n")
-        elif usage_percent > 80:
-            self.console.print(f"[yellow]⚠ Context at {usage_percent:.0f}% - consider using /clear soon[/yellow]\n")
+        # Show token warnings
+        self.display.print_token_warning(usage_percent)
 
         # Start new workflow for each query
         self.workflow.start_workflow()
 
-        # Show thinking indicator (only in real terminal, not in desktop/piped mode)
-        if sys.stdin.isatty():
-            self.console.print("\n[bold cyan]Flux[/bold cyan]:", end=" ")
+        # Show thinking indicator
+        self.display.print_thinking_indicator()
 
         response_text = ""
         tool_uses = []
@@ -1473,7 +1452,7 @@ class CLI:
                 # Stream text to console
                 content = event["content"]
                 response_text += content
-                self.console.print(content, end="")
+                self.display.print_text_stream(content, end="")
 
                 # SMART BACKGROUND PROCESSING:
                 # While user reads the streaming text, analyze it and
@@ -1515,7 +1494,7 @@ class CLI:
 
         # If there was text, add newline
         if response_text:
-            self.console.print()
+            self.display.print_message("")
 
         # Check if cancelled before executing tools
         if self._processing_cancelled:
@@ -1523,7 +1502,7 @@ class CLI:
 
         # Execute tools NOW (after LLM finished generating all tool_calls)
         if tool_uses:
-            self.console.print()
+            self.display.print_message("")
             for tool_use in tool_uses:
                 # Check cancellation before each tool
                 if self._processing_cancelled:
@@ -1542,11 +1521,7 @@ class CLI:
         tool_input = tool_use["input"]
 
         # Display tool execution
-        self.console.print(Panel(
-            f"[bold]{tool_name}[/bold]\n[dim]{tool_input}[/dim]",
-            title="🔧 Tool",
-            border_style="blue"
-        ))
+        self.display.print_tool_execution(tool_name, tool_input)
 
         # CHECK FOR RETRY LOOP BEFORE EXECUTING
         if self.failure_tracker.is_retry_loop(tool_name, threshold=2):
@@ -1952,9 +1927,13 @@ class CLI:
 
         return prompt
 
-    def _print_monitor_notification(self, message: str):
+    def _print_monitor_notification(self, notification: dict):
         """Callback for proactive monitor notifications."""
-        self.console.print(message)
+        # Handle both string and dict notification formats
+        if isinstance(notification, str):
+            # Legacy string format - convert to dict
+            notification = {'message': notification, 'type': 'info', 'title': '💡 Notification'}
+        self.display.print_monitor_notification(notification)
 
     def _maybe_show_suggestions(self):
         """Show smart suggestions if there are any relevant ones.
@@ -2706,116 +2685,35 @@ class CLI:
     async def list_tasks(self):
         """List all tasks."""
         tasks = self.workspace.list_tasks(limit=20)
-
-        if not tasks:
-            self.console.print("\n[yellow]No tasks found[/yellow]")
-            self.console.print("[dim]Create one with: /newtask <title>[/dim]\n")
-            return
-
-        self.console.print("\n[bold]✅ Tasks:[/bold]")
-        self.console.print("=" * 60)
-
-        # Group by status
-        by_status = {}
-        for task in tasks:
-            if task.status not in by_status:
-                by_status[task.status] = []
-            by_status[task.status].append(task)
-
-        # Status emoji and colors
-        status_emoji = {
-            TaskStatus.TODO: "○",
-            TaskStatus.IN_PROGRESS: "▶️",
-            TaskStatus.BLOCKED: "⛔",
-            TaskStatus.DONE: "✅",
-            TaskStatus.CANCELLED: "❌"
-        }
-
-        status_color = {
-            TaskStatus.TODO: "white",
-            TaskStatus.IN_PROGRESS: "cyan",
-            TaskStatus.BLOCKED: "yellow",
-            TaskStatus.DONE: "green",
-            TaskStatus.CANCELLED: "red"
-        }
-
-        # Priority emoji
-        priority_emoji = {
-            TaskPriority.URGENT: "🔴",
-            TaskPriority.HIGH: "🟠",
-            TaskPriority.MEDIUM: "🟡",
-            TaskPriority.LOW: "🟢",
-            TaskPriority.BACKLOG: "⬜"
-        }
-
-        # Show tasks by status
-        for status in [TaskStatus.IN_PROGRESS, TaskStatus.TODO, TaskStatus.BLOCKED, TaskStatus.DONE]:
-            if status not in by_status:
-                continue
-
-            status_tasks = by_status[status]
-            emoji = status_emoji.get(status, "○")
-            color = status_color.get(status, "white")
-
-            self.console.print(f"\n[{color}]{emoji} {status.value.upper().replace('_', ' ')}[/{color}]")
-
-            for task in status_tasks[:10]:  # Limit per status
-                priority_icon = priority_emoji.get(task.priority, "")
-
-                # Show current task indicator
-                current = "🎯 " if (self.workspace.active_session and
-                                         self.workspace.active_session.current_task_id == task.id) else "   "
-
-                self.console.print(f"{current}{priority_icon} [bold]{task.title}[/bold]")
-                self.console.print(f"       [dim]ID: {task.id} | Priority: {task.priority.value}[/dim]")
-
-                if task.description:
-                    desc = task.description[:60] + "..." if len(task.description) > 60 else task.description
-                    self.console.print(f"       [dim]{desc}[/dim]")
-
-        # Suggest next task
         next_task = self.workspace.suggest_next_task()
-        if next_task:
-            self.console.print(f"\n[bold cyan]💡 Suggested Next Task:[/bold cyan]")
-            self.console.print(f"   {next_task.title}")
-            self.console.print(f"   [dim]Priority: {next_task.priority.value} | ID: {next_task.id}[/dim]")
-
-        self.console.print("\n" + "=" * 60 + "\n")
+        self.display.print_tasks(tasks, next_task)
 
     async def show_work_summary(self):
         """Show work summary for today."""
         summary = self.workspace.get_daily_summary()
 
-        self.console.print("\n[bold]📊 Today's Work Summary:[/bold]")
-        self.console.print("=" * 60)
-
-        self.console.print(f"\n🕒 Time: {summary['total_minutes']:.1f} minutes")
-        if summary['total_minutes'] >= 60:
-            hours = summary['total_minutes'] / 60
-            self.console.print(f"      ({hours:.1f} hours)")
-
-        self.console.print(f"\n📋 Sessions: {summary['sessions']}")
-        self.console.print(f"📄 Files Modified: {summary['files_modified']}")
-        self.console.print(f"✅ Tasks Completed: {summary['tasks_completed']}")
-
-        if summary['completed_task_titles']:
-            self.console.print(f"\n[bold]Completed Tasks:[/bold]")
-            for task_title in summary['completed_task_titles']:
-                self.console.print(f"  ✓ {task_title}")
-
-        # Show active session info
+        # Prepare active session info
+        active_session_info = None
         if self.workspace.active_session:
             session = self.workspace.active_session
-            self.console.print(f"\n[bold cyan]Active Session:[/bold cyan] {session.name}")
-            self.console.print(f"  Duration: {session.time_spent_seconds / 60:.1f} minutes")
-            self.console.print(f"  Files: {len(session.files_modified)}")
-
+            active_session_info = {
+                'name': session.name,
+                'duration_minutes': session.time_spent_seconds / 60,
+                'files_count': len(session.files_modified)
+            }
             if session.current_task_id:
                 task = self.workspace.get_task(session.current_task_id)
                 if task:
-                    self.console.print(f"  Current Task: [yellow]{task.title}[/yellow]")
+                    active_session_info['current_task'] = task.title
 
-        self.console.print("\n" + "=" * 60 + "\n")
+        self.display.print_work_summary(
+            total_minutes=summary['total_minutes'],
+            sessions=summary['sessions'],
+            files_modified=summary['files_modified'],
+            tasks_completed=summary['tasks_completed'],
+            completed_task_titles=summary['completed_task_titles'],
+            active_session_info=active_session_info
+        )
 
     async def inspect_state(self):
         """Inspect current conversation and context state."""
