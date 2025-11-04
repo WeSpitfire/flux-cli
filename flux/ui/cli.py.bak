@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional, List
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Prompt
 
 from flux.core.config import Config
 from flux.core.project import ProjectDetector, ProjectInfo
@@ -33,6 +34,7 @@ from flux.core.auto_init import auto_initialize
 from flux.core.task_planner import TaskPlanner
 from flux.ui.nl_commands import get_parser
 from flux.llm.provider_factory import create_provider
+from flux.llm.prompts import get_system_prompt
 from flux.tools.base import ToolRegistry
 from flux.tools.file_ops import ReadFilesTool, WriteFileTool, EditFileTool, MoveFileTool, DeleteFileTool
 from flux.tools.command import RunCommandTool
@@ -199,14 +201,6 @@ class CLI:
         # Initialize conversation manager for query processing
         from flux.core.conversation_manager import ConversationManager
         self.conversation = ConversationManager(self)
-
-        # Initialize workflow coordinator for task planning and orchestration
-        from flux.core.workflow_coordinator import WorkflowCoordinator
-        self.workflow_coord = WorkflowCoordinator(self)
-
-        # Initialize Git/Test manager for Git and testing operations
-        from flux.core.git_test_manager import GitTestManager
-        self.git_test = GitTestManager(self)
 
     async def build_codebase_graph(self) -> None:
         """Build the codebase semantic graph (runs in background)."""
@@ -801,45 +795,800 @@ class CLI:
         self._show_token_usage()
 
     async def process_with_task_planner(self, query: str):
-        """Process query using task planner - delegates to WorkflowCoordinator."""
-        await self.workflow_coord.process_with_task_planner(query)
+        """Process query using smart task planner.
+
+        This uses the TaskPlanner to autonomously break down and execute complex tasks.
+
+        Args:
+            query: User's complex task/goal
+        """
+        # Set processing flag
+        self._llm_processing = True
+        self._processing_cancelled = False
+
+        try:
+            # Step 1: Analyze and create plan
+            plan = await self.task_planner.analyze_and_plan(query)
+
+            self.console.print(f"[bold]\u2705 Plan created:[/bold] {len(plan.steps)} steps")
+            self.console.print(f"[dim]Complexity: {plan.complexity}[/dim]\n")
+
+            # Step 2: Show plan to user
+            self.console.print("[bold cyan]Execution Plan:[/bold cyan]")
+            for step in plan.steps:
+                self.console.print(f"  {step.step_number}. {step.description}")
+                self.console.print(f"     [dim]{step.rationale}[/dim]")
+            self.console.print()
+
+            # Step 3: Execute plan step by step
+            for step in plan.steps:
+                if self._processing_cancelled:
+                    self.console.print("[yellow]Task cancelled by user[/yellow]")
+                    break
+
+                self.console.print(f"\n[bold cyan]Step {step.step_number}:[/bold cyan] {step.description}")
+
+                # Gather required context for this step
+                if step.requires_context:
+                    self.console.print(f"[dim]Reading context: {', '.join(step.requires_context)}[/dim]")
+                    # TODO: Actually read the context files
+
+                # Execute the step through normal conversation mode
+                # This allows LLM to use all available tools
+                await self.process_query_normal(step.description)
+
+                # Mark step as completed
+                step.completed = True
+
+                self.console.print(f"[green]✓ Step {step.step_number} completed[/green]")
+
+            if not self._processing_cancelled:
+                self.console.print("\n[bold green]🎉 Task completed successfully![/bold green]")
+
+        except Exception as e:
+            self.console.print(f"\n[red]Task planning error: {e}[/red]")
+            self.console.print("[yellow]Falling back to normal conversation mode...[/yellow]")
+            # Fall back to normal processing
+            await self.process_query_normal(query)
+        finally:
+            self._llm_processing = False
 
     async def process_with_orchestrator(self, query: str):
-        """Process query using orchestrator - delegates to WorkflowCoordinator."""
-        await self.workflow_coord.process_with_orchestrator(query)
+        """Process a query using the AI orchestrator.
+
+        Args:
+            query: User's natural language goal
+        """
+        # Set processing flag to block new input
+        self._llm_processing = True
+        self._processing_cancelled = False
+
+        try:
+            await self._process_with_orchestrator_impl(query)
+        finally:
+            # Always clear processing flag when done
+            self._llm_processing = False
+
+    async def _process_with_orchestrator_impl(self, query: str):
+        """Internal implementation of process_with_orchestrator.
+
+        Args:
+            query: User's natural language goal
+        """
+        try:
+            # Show that we're planning
+            self.console.print("\n[bold cyan]🎯 Planning workflow...[/bold cyan]")
+
+            # Execute goal through orchestrator
+            result = await self.orchestrator.execute_goal(
+                goal=query,
+                auto_approve=self.config.auto_approve
+            )
+
+            # Display plan
+            plan = result['plan']
+
+            # Check if plan has parse error (fallback scenario)
+            if len(plan['steps']) == 1 and plan['steps'][0].get('tool_name') == '_parse_error':
+                self.console.print("[yellow]Could not create workflow plan, using normal conversation mode[/yellow]")
+                await self.process_query_normal(query)
+                return
+
+            self.console.print(f"\n[bold]Goal:[/bold] {plan['goal']}")
+            self.console.print(f"[dim]Steps: {len(plan['steps'])}[/dim]\n")
+
+            # Show plan to user
+            if plan['requires_approval'] and not self.config.auto_approve:
+                self.console.print("[bold]Execution Plan:[/bold]")
+                for i, step in enumerate(plan['steps'], 1):
+                    tool_name = step['tool_name']
+                    desc = step['description']
+                    self.console.print(f"  {i}. [{tool_name}] {desc}")
+
+                # Ask for approval
+                self.console.print()
+                approve = Prompt.ask(
+                    "[bold yellow]Proceed with execution?[/bold yellow]",
+                    choices=["y", "n"],
+                    default="y"
+                )
+
+                if approve.lower() != 'y':
+                    self.console.print("[yellow]Cancelled[/yellow]")
+                    return
+
+            # Execute (plan already executed, just show results)
+            self.console.print("\n[bold cyan]📋 Execution Summary:[/bold cyan]\n")
+            self.console.print(result['summary'])
+
+            # Show success/failure
+            if result['success']:
+                self.console.print("\n[bold green]✓ Workflow completed successfully[/bold green]")
+            else:
+                self.console.print("\n[bold yellow]⚠ Workflow completed with some errors[/bold yellow]")
+
+
+        except Exception as e:
+            self.console.print(f"\n[red]Orchestration error: {e}[/red]")
+            self.console.print("[dim]Falling back to normal conversation mode...[/dim]")
+            # Fall back to normal processing
+            await self.process_query_normal(query)
 
     def should_use_orchestrator(self, query: str) -> bool:
-        """Determine if orchestrator should be used - delegates to WorkflowCoordinator."""
-        return self.workflow_coord.should_use_orchestrator(query)
+        """Determine if query should be handled by orchestrator.
+
+        Queries that benefit from orchestration:
+        - Build/create features ("add login page")
+        - Multi-step workflows ("fix failing tests")
+        - Testing workflows ("run tests and fix failures")
+        - Code changes with validation ("refactor X and test")
+
+        Queries that should use normal flow:
+        - Simple questions ("what does this do?")
+        - Explanations ("explain this code")
+        - Direct slash commands already handled
+        """
+        query_lower = query.lower()
+
+        # Orchestration triggers
+        # NOTE: Orchestrator is designed for KNOWN WORKFLOWS with clear steps,
+        # NOT for complex feature development which needs iterative LLM reasoning
+        orchestration_patterns = [
+            # Testing workflows (known steps: run → analyze → fix → test)
+            r'(run|execute).*?tests?.*?(fix|and)',
+            r'fix.*?(test|failing).*?(and|then)',
+            # Commit workflows (known steps: review → commit)
+            r'(commit|save).*?(changes|work)',
+            # REMOVED: build/create/implement patterns - these need conversation mode
+        ]
+
+        import re
+        for pattern in orchestration_patterns:
+            if re.search(pattern, query_lower):
+                return True
+
+        # Avoid orchestration for questions and reviews
+        question_patterns = [
+            r'^(what|why|how|when|where|who)',
+            r'^(do|does|can|could|would|should|is|are)',
+            r'(explain|describe|tell me|show me)',
+            r'^(review|look|check|examine|see)',
+            r'(please|just|simply)\s+(review|look|check)',
+            r'\?\s*$'  # Ends with question mark
+        ]
+
+        for pattern in question_patterns:
+            if re.search(pattern, query_lower):
+                return False
+
+        # Avoid orchestration for continuation requests
+        # These should use normal conversation mode with existing context
+        continuation_patterns = [
+            r'^(continue|keep going|go on|proceed)',
+            r'(please|let\'?s)\s+(continue|keep)',
+            r'continue (building|implementing|working)',
+            r'finish (this|it|that|the)',
+            r'complete (this|it|that|the)',
+        ]
+
+        for pattern in continuation_patterns:
+            if re.search(pattern, query_lower):
+                return False
+
+        # Default: DO NOT use orchestrator
+        # Orchestrator should only trigger on explicit workflow patterns above
+        # All build/create/feature work should use conversation mode for iterative reasoning
+        return False
 
     async def process_query(self, query: str):
-        """Process a user query - delegates to ConversationManager."""
-        await self.conversation.process_query(query)
+        """Process a user query."""
+        # Log the raw input
+        self.debug_logger.log_user_input(query, query)  # No processing currently
+
+        # SMART TASK DECOMPOSITION:
+        # Check if task should be autonomously broken down
+        if self.task_planner:
+            should_decompose, reason = await self.task_planner.should_decompose(query)
+            if should_decompose:
+                self.console.print(f"[dim]💡 Complex task detected: {reason}[/dim]")
+                self.console.print("[dim]🧠 Analyzing and planning execution...[/dim]\n")
+                await self.process_with_task_planner(query)
+                return
+
+        # Check if this should be orchestrated (legacy workflows)
+        use_orchestrator = self.should_use_orchestrator(query)
+
+        if use_orchestrator:
+            # Route through orchestrator for workflow execution
+            await self.process_with_orchestrator(query)
+            return
+
+        # Otherwise use normal LLM conversation flow
+        await self.process_query_normal(query)
 
     async def process_query_normal(self, query: str):
-        """Process query through normal LLM conversation - delegates to ConversationManager."""
-        await self.conversation.process_query_normal(query)
+        """Process query through normal LLM conversation (non-orchestrated).
+
+        Args:
+            query: User's query or question
+        """
+        # Set processing flag to block new input
+        self._llm_processing = True
+        self._processing_cancelled = False
+
+        try:
+            await self._process_query_normal_impl(query)
+        except Exception as e:
+            # Handle errors gracefully
+            error_str = str(e)
+            self.console.print(f"\n[red]Error in conversation: {e}[/red]")
+
+            # EMERGENCY: If rate limit error, aggressively clear history
+            if "rate_limit" in error_str.lower() or "429" in error_str or "too large" in error_str.lower():
+                self.console.print("[yellow]⚠️  Rate limit exceeded - clearing history to recover[/yellow]")
+                # Clear conversation history
+                self.llm.clear_history()
+                self.console.print("[dim]History cleared. You can continue with a fresh context.[/dim]")
+            else:
+                self.console.print("[dim]You can continue chatting - the error has been handled[/dim]")
+        finally:
+            # Always clear processing flag when done
+            self._llm_processing = False
 
     async def _process_query_normal_impl(self, query: str):
-        """Internal implementation - delegates to ConversationManager."""
-        await self.conversation._process_query_normal_impl(query)
+        """Internal implementation of process_query_normal.
+
+        Args:
+            query: User's query or question
+        """
+        # Check token usage and warn if approaching limits
+        # FIXED: Use conversation_tokens (current context) not total_tokens (cumulative API usage)
+        conversation_tokens = self.llm.estimate_conversation_tokens()
+        max_tokens = getattr(self.config, 'max_history', 8000)
+        usage_percent = (conversation_tokens / max_tokens) * 100 if max_tokens > 0 else 0
+
+        usage = self.llm.get_token_usage()
+
+        # Always show compact token status
+        self.display.print_token_usage(
+            conversation_tokens=conversation_tokens,
+            max_tokens=max_tokens,
+            estimated_cost=usage['estimated_cost']
+        )
+
+        # Show token warnings
+        self.display.print_token_warning(usage_percent)
+
+        # Start new workflow for each query
+        self.workflow.start_workflow()
+
+        # Show thinking indicator
+        self.display.print_thinking_indicator()
+
+        response_text = ""
+        tool_uses = []
+
+        # Build system prompt with project context, intelligent suggestions, and state
+        system_prompt = self._build_system_prompt(query=query)
+
+        # Add contextual state to prompt
+        state_context = self.state_tracker.get_contextual_prompt_addon()
+        if state_context:
+            system_prompt += state_context
+
+        # Log system prompt and context
+        self.debug_logger.log_system_prompt(system_prompt)
+        self.debug_logger.log_conversation_history(self.llm.conversation_history)
+
+        # Get LLM response
+        async for event in self.llm.send_message(
+            message=query,
+            system_prompt=system_prompt,
+            tools=self.tools.get_all_schemas()
+        ):
+            # Check if user cancelled
+            if self._processing_cancelled:
+                self.console.print("\n[yellow]Cancelled by user[/yellow]")
+                return
+
+            if event["type"] == "text":
+                # Stream text to console
+                content = event["content"]
+                response_text += content
+                self.display.print_text_stream(content, end="")
+
+                # SMART BACKGROUND PROCESSING:
+                # While user reads the streaming text, analyze it and
+                # pre-load files that are likely to be needed next
+                tasks = self.bg_processor.analyze_chunk(content)
+                if tasks:
+                    await self.bg_processor.schedule_and_run(tasks)
+
+            elif event["type"] == "tool_use":
+                # Collect tools but DON'T execute yet - OpenAI requires all tool_calls
+                # to be in the assistant message before any tool results
+                tool_uses.append(event)
+
+        # Log LLM response
+        self.debug_logger.log_llm_response(response_text, tool_uses)
+
+        # Track conversation in state tracker
+        files_mentioned = []
+        for tool_use in tool_uses:
+            if 'path' in tool_use['input']:
+                files_mentioned.append(tool_use['input']['path'])
+            elif 'file_path' in tool_use['input']:
+                files_mentioned.append(tool_use['input']['file_path'])
+            elif 'paths' in tool_use['input']:
+                files_mentioned.extend(tool_use['input']['paths'])
+        tools_used = [t['name'] for t in tool_uses]
+        self.state_tracker.track_conversation(query, response_text, files_mentioned, tools_used)
+
+        # Record message event in session
+        self.session_manager.record_event(
+            self.EventType.MESSAGE,
+            {
+                'query': query,
+                'response': response_text[:200],  # First 200 chars
+                'tools_used': tools_used,
+                'files_mentioned': files_mentioned
+            }
+        )
+
+        # If there was text, add newline
+        if response_text:
+            self.display.print_message("")
+
+        # Check if cancelled before executing tools
+        if self._processing_cancelled:
+            return
+
+        # Execute tools NOW (after LLM finished generating all tool_calls)
+        if tool_uses:
+            self.display.print_message("")
+            for tool_use in tool_uses:
+                # Check cancellation before each tool
+                if self._processing_cancelled:
+                    self.console.print("[yellow]Remaining tool executions cancelled[/yellow]")
+                    return
+                await self.execute_tool(tool_use)
+
+            # Continue conversation with tool results
+            if not self._processing_cancelled:
+                await self.continue_after_tools()
 
     async def execute_tool(self, tool_use: dict):
-        """Execute a tool - delegates to ConversationManager."""
-        await self.conversation.execute_tool(tool_use)
+        """Execute a tool and display results."""
+        tool_name = tool_use["name"]
+        tool_id = tool_use["id"]
+        tool_input = tool_use["input"]
+
+        # Display tool execution
+        self.display.print_tool_execution(tool_name, tool_input)
+
+        # CHECK FOR RETRY LOOP BEFORE EXECUTING
+        if self.failure_tracker.is_retry_loop(tool_name, threshold=2):
+            guidance = self.failure_tracker.get_retry_guidance(tool_name)
+            if guidance:
+                # BLOCK execution - force strategy change
+                result = {
+                    "error": {
+                        "code": "RETRY_LOOP_DETECTED",
+                        "message": f"Too many consecutive failures for {tool_name}. You MUST try a different approach.",
+                    },
+                    "retry_guidance": guidance,
+                    "retry_blocked": True,
+                    "previous_failures": self.failure_tracker.failure_count_by_tool.get(tool_name, 0)
+                }
+
+                # Add result and display blocking message
+                self.llm.add_tool_result(tool_id, result)
+                self.console.print(Panel(
+                    f"[bold red]⚠️  RETRY LOOP DETECTED[/bold red]\n\n{guidance}",
+                    title="❌ Blocked",
+                    border_style="red"
+                ))
+                return  # Don't execute the tool
+
+        # Execute tool
+        try:
+            import time
+            start_time = time.time()
+
+            result = await self.tools.execute(tool_name, **tool_input)
+            success = not (isinstance(result, dict) and "error" in result)
+
+            # Record metrics
+            execution_time_ms = (time.time() - start_time) * 1000
+            self.tool_metrics.record_attempt(tool_name, success, execution_time_ms)
+
+            # Log tool execution
+            self.debug_logger.log_tool_call(tool_name, tool_input, result, success)
+
+            # SMART RETRY: If edit_file fails with SEARCH_TEXT_NOT_FOUND, auto-read and provide context
+            if (tool_name == "edit_file" and
+                isinstance(result, dict) and
+                result.get("error", {}).get("code") == "SEARCH_TEXT_NOT_FOUND"):
+
+                file_path = tool_input.get("path")
+                if file_path:
+                    retry_count = self.failure_tracker.failure_count_by_tool.get(tool_name, 0)
+                    self.console.print(f"[yellow]⚠ Search text not found (attempt {retry_count + 1}). Reading file for context...[/yellow]")
+
+                    # Read the file to get current content
+                    try:
+                        read_result = await self.tools.execute("read_files", paths=[file_path])
+
+                        # Add helpful context to the error with stronger guidance
+                        if retry_count >= 1:
+                            # 2nd failure - much stronger warning
+                            message = (
+                                "🛑 SECOND FAILURE DETECTED\n\n"
+                                "This approach is NOT working. Next attempt will be BLOCKED.\n\n"
+                                "You MUST change strategy now:\n"
+                                "1. Try a completely different tool\n"
+                                "2. Break the change into smaller steps\n"
+                                "3. Re-read the file to understand the current state\n\n"
+                                "DO NOT retry edit_file with the same approach."
+                            )
+                        else:
+                            # First failure - helpful guidance
+                            message = (
+                                "⚠️  SEARCH TEXT NOT FOUND - File has been auto-read for you.\n\n"
+                                "BEFORE RETRYING:\n"
+                                "1. Look at the EXACT file content in the Result panel below\n"
+                                "2. Copy the EXACT text you want to change (including ALL spaces/tabs)\n"
+                                "3. DO NOT guess or try to remember - use the exact content shown\n\n"
+                                f"Attempt {retry_count + 1}/2 - next failure will be blocked"
+                            )
+
+                        result["auto_recovery"] = {
+                            "action": "file_read_completed",
+                            "message": message,
+                            "file_content_available": True,
+                            "retry_count": retry_count + 1,
+                            "will_block_next": retry_count >= 1
+                        }
+
+                        # Show the file content to user
+                        self.console.print(Panel(
+                            f"[dim]Auto-read {file_path} to help with retry[/dim]",
+                            border_style="yellow"
+                        ))
+
+                        # Instead of adding an orphaned tool result, include the read content
+                        # in the main tool result so the LLM can see it in context
+                        result["auto_read_content"] = read_result
+
+                    except Exception as read_error:
+                        result["auto_recovery"] = {
+                            "action": "file_read_failed",
+                            "message": f"Failed to auto-read file: {str(read_error)}"
+                        }
+
+            # Check if result is an error
+            is_error = isinstance(result, dict) and "error" in result
+
+            if is_error:
+                # Record failure
+                error_data = result.get("error", {})
+                # Handle both dict and string errors
+                if isinstance(error_data, dict):
+                    error_code = error_data.get("code")
+                    error_message = error_data.get("message", str(error_data))
+                else:
+                    # Error is a string directly
+                    error_code = None
+                    error_message = str(error_data)
+
+                self.failure_tracker.record_failure(
+                    tool_name=tool_name,
+                    error_code=error_code,
+                    error_message=error_message,
+                    input_params=tool_input
+                )
+
+                # Get failure count and show visual warning
+                failure_count = self.failure_tracker.failure_count_by_tool.get(tool_name, 0)
+                if failure_count == 2:
+                    self.console.print(Panel(
+                        f"[bold yellow]⚠️  {tool_name} has failed twice in a row[/bold yellow]\n\n"
+                        f"The LLM should now try a DIFFERENT approach or tool.\n"
+                        f"Next attempt will be automatically blocked.",
+                        title="🔄 Retry Warning",
+                        border_style="yellow"
+                    ))
+
+                # Check for retry loop and inject guidance
+                if self.failure_tracker.is_retry_loop(tool_name):
+                    guidance = self.failure_tracker.get_retry_guidance(tool_name)
+                    if guidance:
+                        # Inject guidance into the result for LLM to see
+                        result["retry_guidance"] = guidance
+            else:
+                # Success - clear ALL failures (fresh start)
+                if self.failure_tracker.failures:
+                    self.console.print("[dim]✓ Operation successful - failure tracking reset[/dim]")
+                self.failure_tracker.reset()
+
+            # Record in memory
+            self.memory.record_tool_use(tool_name, tool_input, result)
+
+            # Record file edit events in session
+            if tool_name == "edit_file" and success:
+                file_path = tool_input.get("path")
+                if file_path:
+                    self.session_manager.record_event(
+                        self.EventType.FILE_EDIT,
+                        {'file': str(file_path)}
+                    )
+
+            # Record errors in session
+            if is_error:
+                error_data = result.get("error", {})
+                if isinstance(error_data, dict):
+                    error_message = error_data.get("message", str(error_data))
+                else:
+                    error_message = str(error_data)
+
+                self.session_manager.record_error({
+                    'message': error_message,
+                    'tool': tool_name,
+                    'file': tool_input.get('path') or tool_input.get('file_path')
+                })
+
+            # Update suggestions engine context
+            if self.suggestions_engine:
+                # Track file access
+                if tool_name in ['read_files', 'write_file', 'edit_file', 'ast_edit']:
+                    file_path = tool_input.get('file_path') or tool_input.get('path')
+                    if file_path:
+                        self.suggestions_engine.update_context(current_file=file_path)
+
+                # Track commands
+                elif tool_name == 'run_command':
+                    command = tool_input.get('command', '')
+                    self.suggestions_engine.update_context(recent_command=command)
+
+            # Update workspace tracking
+            if tool_name in ['read_files', 'write_file', 'edit_file', 'ast_edit']:
+                file_path = tool_input.get('file_path') or tool_input.get('path')
+                if file_path:
+                    self.workspace.track_file_access(file_path)
+
+                    # Track in state tracker too
+                    if tool_name in ['write_file', 'edit_file', 'ast_edit']:
+                        operation = 'write' if tool_name == 'write_file' else 'edit'
+                        self.state_tracker.track_file_modification(file_path, operation)
+            elif tool_name == 'run_command':
+                command = tool_input.get('command', '')
+                self.workspace.track_command(command)
+
+                # Track command execution in state tracker
+                exit_code = result.get('exit_code', 0) if isinstance(result, dict) else 0
+                output_str = result.get('output', '') if isinstance(result, dict) else str(result)
+                self.state_tracker.track_command(command, exit_code, output_str)
+
+                # Parse errors from command output automatically
+                if exit_code != 0 and isinstance(result, dict) and 'output' in result:
+                    parsed_errors = self.error_parser.parse_output(output_str, command)
+                    if parsed_errors:
+                        # Add parsed errors to result for LLM context
+                        result['parsed_errors'] = [e.to_dict() for e in parsed_errors]
+
+                        # Show parsed errors to user
+                        self.console.print("\n[bold yellow]🔍 Detected Errors:[/bold yellow]")
+                        for i, error in enumerate(parsed_errors[:3], 1):  # Show top 3
+                            self.console.print(f"\n{i}. {self.error_parser.format_error(error)}")
+
+                        if len(parsed_errors) > 3:
+                            self.console.print(f"\n[dim]... and {len(parsed_errors) - 3} more errors[/dim]")
+
+                        self.console.print()  # Add spacing
+
+                # Detect test commands and track results
+                test_keywords = ['pytest', 'test', 'npm test', 'jest', 'mocha', 'cargo test', 'go test']
+                if any(kw in command.lower() for kw in test_keywords):
+                    passed = exit_code == 0
+                    # Extract failures from output (simplified)
+                    failures = []
+                    if not passed and isinstance(result, dict) and 'output' in result:
+                        # Try to extract test names from output
+                        for line in result['output'].split('\n'):
+                            if 'FAILED' in line or 'failed' in line.lower():
+                                failures.append(line.strip()[:100])
+                    self.state_tracker.track_test_result(command, passed, failures[:5])
+
+            # Add result to conversation
+            self.llm.add_tool_result(tool_id, result)
+
+            # Display result (truncated if too long)
+            result_str = str(result)
+            if len(result_str) > 500:
+                result_str = result_str[:500] + "..."
+
+            self.console.print(Panel(
+                result_str,
+                title="✓ Result",
+                border_style="green"
+            ))
+
+            # Show subtle workflow progress indicator
+            if self.workflow.context:
+                files_read = len(self.workflow.context.files_read)
+                stage = self.workflow.context.stage.value
+                self.console.print(
+                    f"[dim]Workflow: {stage} | Files read: {files_read}[/dim]"
+                )
+
+        except KeyboardInterrupt:
+            # User cancelled during tool execution
+            error_msg = "Operation cancelled by user"
+            self.llm.add_tool_result(tool_id, {"error": error_msg, "cancelled": True})
+            self.console.print(Panel(
+                error_msg,
+                title="✗ Cancelled",
+                border_style="yellow"
+            ))
+            # Don't re-raise - allow conversation to continue
+        except Exception as e:
+            error_msg = f"Error: {str(e)}"
+            self.llm.add_tool_result(tool_id, {"error": error_msg})
+
+            self.console.print(Panel(
+                error_msg,
+                title="✗ Error",
+                border_style="red"
+            ))
 
     async def continue_after_tools(self):
-        """Continue conversation after tools - delegates to ConversationManager."""
-        await self.conversation.continue_after_tools()
+        """Continue conversation after tool execution."""
+        try:
+            # ALWAYS show that we're processing - this is critical for desktop/piped mode
+            # where users can't see what's happening
+            self.console.print("\n[dim]⏳ Processing tool results...[/dim]")
+
+            # Show thinking indicator (only in real terminal, not in desktop/piped mode)
+            if sys.stdin.isatty():
+                self.console.print("[bold cyan]Flux[/bold cyan]:", end=" ")
+
+            response_text = ""
+            tool_uses = []
+
+            # Build system prompt with project context and retry warnings
+            system_prompt = self._build_system_prompt()
+
+            # Add retry context if there are failures
+            retry_context = self._get_retry_context()
+            if retry_context:
+                system_prompt += retry_context
+
+            # Send continuation message to get LLM's response to tool results
+            # NOTE: Sending empty message can cause Claude to hang/timeout
+            # Instead, send a minimal continuation prompt
+            async for event in self.llm.send_message(
+                message="continue",
+                system_prompt=system_prompt,
+                tools=self.tools.get_all_schemas()
+            ):
+                if event["type"] == "text":
+                    content = event["content"]
+                    response_text += content
+                    self.console.print(content, end="")
+
+                elif event["type"] == "tool_use":
+                    tool_uses.append(event)
+
+            if response_text:
+                self.console.print()
+
+            # Execute more tools if needed (recursive)
+            if tool_uses:
+                self.console.print()
+                for tool_use in tool_uses:
+                    await self.execute_tool(tool_use)
+
+                await self.continue_after_tools()
+
+        except KeyboardInterrupt:
+            # User cancelled during continuation
+            self.console.print("\n[yellow]Operation cancelled[/yellow]")
+            # Don't re-raise - return to main loop
+        except Exception as e:
+            # Log error but don't crash - allow user to continue
+            error_str = str(e)
+            self.console.print(f"\n[red]Error in conversation: {e}[/red]")
+
+            # AUTO-CLEAR: If context overflow, automatically clear and continue
+            if "rate_limit" in error_str.lower() or "429" in error_str or "too large" in error_str.lower() or "context" in error_str.lower():
+                # Clear conversation history automatically
+                self.llm.clear_history()
+                self.console.print("[dim]✨ Context automatically refreshed. Continuing...[/dim]")
+            else:
+                self.console.print("[dim]You can continue chatting - the error has been handled[/dim]")
 
     def _get_retry_context(self) -> str:
-        """Get retry context warning - delegates to ConversationManager."""
-        return self.conversation._get_retry_context()
+        """Get retry context warning for system prompt."""
+        if not self.failure_tracker.failures:
+            return ""
+
+        # Check for tools that have failed multiple times
+        warnings = []
+        for tool_name, count in self.failure_tracker.failure_count_by_tool.items():
+            if count >= 2:
+                warnings.append(
+                    f"⚠️  CRITICAL: {tool_name} has failed {count} times. "
+                    f"DO NOT retry the same approach. Try:\n"
+                    f"  - Re-read files and copy EXACT text\n"
+                    f"  - Use a different tool (e.g., ast_edit for Python)\n"
+                    f"  - Break the change into smaller steps\n"
+                    f"  - Ask for clarification if unclear"
+                )
+
+        if warnings:
+            return "\n\n" + "\n\n".join(warnings) + "\n"
+        return ""
 
     def _build_system_prompt(self, query: Optional[str] = None) -> str:
-        """Build system prompt - delegates to ConversationManager."""
-        return self.conversation._build_system_prompt(query)
+        """Build system prompt with project context and intelligence."""
+        # Get model-appropriate prompt (concise for Haiku, full for Sonnet)
+        prompt = get_system_prompt(self.config.model)
 
+        # Add minimal project context
+        if self.project_info:
+            # Condensed version - just essentials
+            prompt += f"\n\nProject: {self.project_info.name} ({self.project_info.project_type})"
+            if self.project_info.frameworks:
+                prompt += f" | {', '.join(self.project_info.frameworks[:2])}"
+
+        # Add README only on first query, keep it very brief
+        if self._project_readme and query and len(self.llm.conversation_history) < 2:
+            # Limit to 500 chars to save tokens (reduced from 1000)
+            readme_snippet = self._project_readme[:500]
+            prompt += f"\n\nREADME: {readme_snippet}"
+
+        # Minimal codebase intelligence - only when relevant
+        if self.codebase_graph and query:
+            # Only add file suggestions if they exist (limit to 2)
+            suggested_files = self.get_intelligent_context(query)
+            if suggested_files:
+                prompt += f"\n\nRelevant: {', '.join(suggested_files[:2])}"
+
+        # Only add memory context if there's an active task
+        if self.memory.state.current_task:
+            prompt += f"\n\nCurrent task: {self.memory.state.current_task}"
+
+        # Add session context for AI
+        session_context = self.session_manager.get_context_for_ai()
+        if session_context.get('recent_events'):
+            prompt += "\n\nRecent session activity:"
+            for event in session_context['recent_events'][:3]:  # Last 3 events
+                prompt += f"\n- {event['type']}: {event.get('summary', 'N/A')}"
+
+        if session_context.get('current_task'):
+            prompt += f"\n\nActive task: {session_context['current_task']}"
+
+        return prompt
 
     def _print_monitor_notification(self, notification: dict):
         """Callback for proactive monitor notifications."""
@@ -901,32 +1650,191 @@ class CLI:
             )
 
     async def show_diff(self):
-        """Show git diff - delegates to GitTestManager."""
-        await self.git_test.show_diff()
+        """Show git diff using visual diff viewer."""
+        from flux.ui.diff_viewer import create_diff_viewer_from_git
+
+        status = self.git.get_status()
+
+        if not status.is_repo:
+            self.console.print("[red]Not in a git repository[/red]")
+            return
+
+        if not status.has_changes:
+            self.console.print("[green]No changes to show[/green]")
+            return
+
+        # Show branch info
+        self.console.print(f"\n[bold]Branch:[/bold] {status.branch}")
+
+        # Create and populate diff viewer
+        viewer = create_diff_viewer_from_git(self.console, self.git, self.cwd)
+
+        # Display the visual diff
+        viewer.display_summary()
 
     async def smart_commit(self, query: str):
-        """Create smart commit - delegates to GitTestManager."""
-        await self.git_test.smart_commit(query)
+        """Create a smart commit."""
+        status = self.git.get_status()
+
+        if not status.is_repo:
+            self.console.print("[red]Not in a git repository[/red]")
+            return
+
+        if not status.has_changes:
+            self.console.print("[yellow]No changes to commit[/yellow]")
+            return
+
+        # Check if message provided
+        message = None
+        if len(query.strip()) > 7:  # More than just "/commit"
+            message = query[7:].strip()
+
+        # Generate message if not provided
+        if not message:
+            all_files = status.staged_files + status.modified_files + status.untracked_files
+            message = self.git.create_smart_commit_message(all_files)
+            self.console.print(f"\n[bold]Generated commit message:[/bold]")
+            self.console.print(f"  {message}\n")
+
+            # Ask for confirmation
+            from rich.prompt import Confirm
+            if not Confirm.ask("Use this message?"):
+                self.console.print("[yellow]Commit cancelled[/yellow]")
+                return
+
+        # Stage all changed files
+        files_to_commit = status.modified_files + status.untracked_files
+        if files_to_commit:
+            success, msg = self.git.stage_files(files_to_commit)
+            if not success:
+                self.console.print(f"[red]Failed to stage files: {msg}[/red]")
+                return
+
+        # Create commit
+        success, msg = self.git.commit(message)
+        if success:
+            self.console.print(f"[green]✓ {msg}[/green]")
+            self.memory.add_checkpoint(f"Committed: {message}")
+        else:
+            self.console.print(f"[red]✗ {msg}[/red]")
 
     async def run_tests(self, file_filter: Optional[str] = None):
-        """Run tests - delegates to GitTestManager."""
-        await self.git_test.run_tests(file_filter)
+        """Run project tests using the smart test runner."""
+        self.console.print(f"\n[bold]Running tests...[/bold] (Framework: {self.test_runner.framework.value})\n")
 
-    def _display_test_result(self, result):
-        """Display test results - delegates to GitTestManager."""
-        self.git_test.display_test_result(result)
+        # Run tests
+        import asyncio
+        result = await asyncio.to_thread(self.test_runner.run_tests, file_filter)
+
+        # Display results
+        self._display_test_result(result)
+
+        # Update state tracker
+        if result.status.value == "failed":
+            self.state_tracker.record_test_failure([
+                {"name": f.test_name, "error": f.error_message}
+                for f in result.failures
+            ])
+        else:
+            self.state_tracker.record_test_success()
+
+        # Update session with test status
+        self.session_manager.update_test_status({
+            'total': result.total_tests,
+            'passed': result.passed,
+            'failed': result.failed,
+            'skipped': result.skipped,
+            'duration': result.duration
+        })
+
+    def _display_test_result(self, result: TestResult):
+        """Display test results in a beautiful format."""
+        # Summary panel
+        status_icon = "✓" if result.success else "✗"
+        status_color = "green" if result.success else "red"
+
+        summary = (
+            f"[bold]{result.framework.value.upper()} Test Results[/bold]\n\n"
+            f"Tests: [{status_color}]{result.total_tests}[/{status_color}]\n"
+            f"Passed: [green]{result.passed}[/green]\n"
+            f"Failed: [red]{result.failed}[/red]\n"
+        )
+
+        if result.skipped > 0:
+            summary += f"Skipped: [yellow]{result.skipped}[/yellow]\n"
+
+        if result.duration > 0:
+            summary += f"Duration: [cyan]{result.duration:.2f}s[/cyan]\n"
+
+        if result.total_tests > 0:
+            summary += f"Pass Rate: [cyan]{result.pass_rate:.1f}%[/cyan]"
+
+        self.console.print(Panel(
+            summary,
+            title=f"{status_icon} Test Results",
+            border_style=status_color
+        ))
+
+        # Show failures if any
+        if result.failures:
+            self.console.print("\n[bold red]Failures:[/bold red]\n")
+            for failure in result.failures:
+                self.console.print(f"  ❌ {failure.test_name}")
+                if failure.file_path:
+                    self.console.print(f"     File: [cyan]{failure.file_path}[/cyan]")
+                if failure.error_message:
+                    # Truncate long error messages
+                    error = failure.error_message[:200]
+                    if len(failure.error_message) > 200:
+                        error += "..."
+                    self.console.print(f"     Error: [dim]{error}[/dim]")
+                self.console.print()
 
     async def start_watch_mode(self):
-        """Start test watch mode - delegates to GitTestManager."""
-        await self.git_test.start_watch_mode()
+        """Start test watch mode."""
+        if self.test_watcher and self.test_watcher.is_running:
+            self.console.print("[yellow]Watch mode already running[/yellow]")
+            return
+
+        self.console.print("\n[bold cyan]Starting test watch mode...[/bold cyan]")
+        self.console.print(f"Framework: [green]{self.test_runner.framework.value}[/green]")
+        self.console.print(f"Watching: [cyan]{self.cwd}[/cyan]")
+        self.console.print("\n[dim]Tests will run automatically when files change[/dim]")
+        self.console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+        # Create watcher with callback
+        self.test_watcher = TestWatcher(
+            self.test_runner,
+            on_test_complete=self._on_watch_test_complete
+        )
+
+        await self.test_watcher.start()
+
+        # Run tests once on start
+        self.console.print("[dim]Running initial test suite...[/dim]\n")
+        result = await asyncio.to_thread(self.test_runner.run_tests)
+        self._display_test_result(result)
+
+        try:
+            # Keep running until interrupted
+            while self.test_watcher.is_running:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            self.console.print("\n[yellow]Stopping watch mode...[/yellow]")
+            self.stop_watch_mode()
 
     def stop_watch_mode(self):
-        """Stop test watch mode - delegates to GitTestManager."""
-        self.git_test.stop_watch_mode()
+        """Stop test watch mode."""
+        if self.test_watcher:
+            self.test_watcher.stop()
+            self.test_watcher = None
+            self.console.print("[green]✓ Watch mode stopped[/green]")
 
-    def _on_watch_test_complete(self, result):
-        """Watch mode callback - delegates to GitTestManager."""
-        self.git_test._on_watch_test_complete(result)
+    def _on_watch_test_complete(self, result: TestResult):
+        """Callback when watch mode tests complete."""
+        self.console.print("\n" + "─" * 80 + "\n")
+        self.console.print("[bold]Tests completed[/bold]")
+        self._display_test_result(result)
 
     async def show_related_files(self, file_or_query: str):
         """Show files related to a file or query."""

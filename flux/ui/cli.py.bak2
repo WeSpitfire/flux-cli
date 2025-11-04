@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional, List
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Prompt
 
 from flux.core.config import Config
 from flux.core.project import ProjectDetector, ProjectInfo
@@ -203,10 +204,6 @@ class CLI:
         # Initialize workflow coordinator for task planning and orchestration
         from flux.core.workflow_coordinator import WorkflowCoordinator
         self.workflow_coord = WorkflowCoordinator(self)
-
-        # Initialize Git/Test manager for Git and testing operations
-        from flux.core.git_test_manager import GitTestManager
-        self.git_test = GitTestManager(self)
 
     async def build_codebase_graph(self) -> None:
         """Build the codebase semantic graph (runs in background)."""
@@ -801,16 +798,210 @@ class CLI:
         self._show_token_usage()
 
     async def process_with_task_planner(self, query: str):
-        """Process query using task planner - delegates to WorkflowCoordinator."""
-        await self.workflow_coord.process_with_task_planner(query)
+        """Process query using smart task planner.
+
+        This uses the TaskPlanner to autonomously break down and execute complex tasks.
+
+        Args:
+            query: User's complex task/goal
+        """
+        # Set processing flag
+        self._llm_processing = True
+        self._processing_cancelled = False
+
+        try:
+            # Step 1: Analyze and create plan
+            plan = await self.task_planner.analyze_and_plan(query)
+
+            self.console.print(f"[bold]\u2705 Plan created:[/bold] {len(plan.steps)} steps")
+            self.console.print(f"[dim]Complexity: {plan.complexity}[/dim]\n")
+
+            # Step 2: Show plan to user
+            self.console.print("[bold cyan]Execution Plan:[/bold cyan]")
+            for step in plan.steps:
+                self.console.print(f"  {step.step_number}. {step.description}")
+                self.console.print(f"     [dim]{step.rationale}[/dim]")
+            self.console.print()
+
+            # Step 3: Execute plan step by step
+            for step in plan.steps:
+                if self._processing_cancelled:
+                    self.console.print("[yellow]Task cancelled by user[/yellow]")
+                    break
+
+                self.console.print(f"\n[bold cyan]Step {step.step_number}:[/bold cyan] {step.description}")
+
+                # Gather required context for this step
+                if step.requires_context:
+                    self.console.print(f"[dim]Reading context: {', '.join(step.requires_context)}[/dim]")
+                    # TODO: Actually read the context files
+
+                # Execute the step through normal conversation mode
+                # This allows LLM to use all available tools
+                await self.process_query_normal(step.description)
+
+                # Mark step as completed
+                step.completed = True
+
+                self.console.print(f"[green]✓ Step {step.step_number} completed[/green]")
+
+            if not self._processing_cancelled:
+                self.console.print("\n[bold green]🎉 Task completed successfully![/bold green]")
+
+        except Exception as e:
+            self.console.print(f"\n[red]Task planning error: {e}[/red]")
+            self.console.print("[yellow]Falling back to normal conversation mode...[/yellow]")
+            # Fall back to normal processing
+            await self.process_query_normal(query)
+        finally:
+            self._llm_processing = False
 
     async def process_with_orchestrator(self, query: str):
-        """Process query using orchestrator - delegates to WorkflowCoordinator."""
-        await self.workflow_coord.process_with_orchestrator(query)
+        """Process a query using the AI orchestrator.
+
+        Args:
+            query: User's natural language goal
+        """
+        # Set processing flag to block new input
+        self._llm_processing = True
+        self._processing_cancelled = False
+
+        try:
+            await self._process_with_orchestrator_impl(query)
+        finally:
+            # Always clear processing flag when done
+            self._llm_processing = False
+
+    async def _process_with_orchestrator_impl(self, query: str):
+        """Internal implementation of process_with_orchestrator.
+
+        Args:
+            query: User's natural language goal
+        """
+        try:
+            # Show that we're planning
+            self.console.print("\n[bold cyan]🎯 Planning workflow...[/bold cyan]")
+
+            # Execute goal through orchestrator
+            result = await self.orchestrator.execute_goal(
+                goal=query,
+                auto_approve=self.config.auto_approve
+            )
+
+            # Display plan
+            plan = result['plan']
+
+            # Check if plan has parse error (fallback scenario)
+            if len(plan['steps']) == 1 and plan['steps'][0].get('tool_name') == '_parse_error':
+                self.console.print("[yellow]Could not create workflow plan, using normal conversation mode[/yellow]")
+                await self.process_query_normal(query)
+                return
+
+            self.console.print(f"\n[bold]Goal:[/bold] {plan['goal']}")
+            self.console.print(f"[dim]Steps: {len(plan['steps'])}[/dim]\n")
+
+            # Show plan to user
+            if plan['requires_approval'] and not self.config.auto_approve:
+                self.console.print("[bold]Execution Plan:[/bold]")
+                for i, step in enumerate(plan['steps'], 1):
+                    tool_name = step['tool_name']
+                    desc = step['description']
+                    self.console.print(f"  {i}. [{tool_name}] {desc}")
+
+                # Ask for approval
+                self.console.print()
+                approve = Prompt.ask(
+                    "[bold yellow]Proceed with execution?[/bold yellow]",
+                    choices=["y", "n"],
+                    default="y"
+                )
+
+                if approve.lower() != 'y':
+                    self.console.print("[yellow]Cancelled[/yellow]")
+                    return
+
+            # Execute (plan already executed, just show results)
+            self.console.print("\n[bold cyan]📋 Execution Summary:[/bold cyan]\n")
+            self.console.print(result['summary'])
+
+            # Show success/failure
+            if result['success']:
+                self.console.print("\n[bold green]✓ Workflow completed successfully[/bold green]")
+            else:
+                self.console.print("\n[bold yellow]⚠ Workflow completed with some errors[/bold yellow]")
+
+
+        except Exception as e:
+            self.console.print(f"\n[red]Orchestration error: {e}[/red]")
+            self.console.print("[dim]Falling back to normal conversation mode...[/dim]")
+            # Fall back to normal processing
+            await self.process_query_normal(query)
 
     def should_use_orchestrator(self, query: str) -> bool:
-        """Determine if orchestrator should be used - delegates to WorkflowCoordinator."""
-        return self.workflow_coord.should_use_orchestrator(query)
+        """Determine if query should be handled by orchestrator.
+
+        Queries that benefit from orchestration:
+        - Build/create features ("add login page")
+        - Multi-step workflows ("fix failing tests")
+        - Testing workflows ("run tests and fix failures")
+        - Code changes with validation ("refactor X and test")
+
+        Queries that should use normal flow:
+        - Simple questions ("what does this do?")
+        - Explanations ("explain this code")
+        - Direct slash commands already handled
+        """
+        query_lower = query.lower()
+
+        # Orchestration triggers
+        # NOTE: Orchestrator is designed for KNOWN WORKFLOWS with clear steps,
+        # NOT for complex feature development which needs iterative LLM reasoning
+        orchestration_patterns = [
+            # Testing workflows (known steps: run → analyze → fix → test)
+            r'(run|execute).*?tests?.*?(fix|and)',
+            r'fix.*?(test|failing).*?(and|then)',
+            # Commit workflows (known steps: review → commit)
+            r'(commit|save).*?(changes|work)',
+            # REMOVED: build/create/implement patterns - these need conversation mode
+        ]
+
+        import re
+        for pattern in orchestration_patterns:
+            if re.search(pattern, query_lower):
+                return True
+
+        # Avoid orchestration for questions and reviews
+        question_patterns = [
+            r'^(what|why|how|when|where|who)',
+            r'^(do|does|can|could|would|should|is|are)',
+            r'(explain|describe|tell me|show me)',
+            r'^(review|look|check|examine|see)',
+            r'(please|just|simply)\s+(review|look|check)',
+            r'\?\s*$'  # Ends with question mark
+        ]
+
+        for pattern in question_patterns:
+            if re.search(pattern, query_lower):
+                return False
+
+        # Avoid orchestration for continuation requests
+        # These should use normal conversation mode with existing context
+        continuation_patterns = [
+            r'^(continue|keep going|go on|proceed)',
+            r'(please|let\'?s)\s+(continue|keep)',
+            r'continue (building|implementing|working)',
+            r'finish (this|it|that|the)',
+            r'complete (this|it|that|the)',
+        ]
+
+        for pattern in continuation_patterns:
+            if re.search(pattern, query_lower):
+                return False
+
+        # Default: DO NOT use orchestrator
+        # Orchestrator should only trigger on explicit workflow patterns above
+        # All build/create/feature work should use conversation mode for iterative reasoning
+        return False
 
     async def process_query(self, query: str):
         """Process a user query - delegates to ConversationManager."""
@@ -901,32 +1092,191 @@ class CLI:
             )
 
     async def show_diff(self):
-        """Show git diff - delegates to GitTestManager."""
-        await self.git_test.show_diff()
+        """Show git diff using visual diff viewer."""
+        from flux.ui.diff_viewer import create_diff_viewer_from_git
+
+        status = self.git.get_status()
+
+        if not status.is_repo:
+            self.console.print("[red]Not in a git repository[/red]")
+            return
+
+        if not status.has_changes:
+            self.console.print("[green]No changes to show[/green]")
+            return
+
+        # Show branch info
+        self.console.print(f"\n[bold]Branch:[/bold] {status.branch}")
+
+        # Create and populate diff viewer
+        viewer = create_diff_viewer_from_git(self.console, self.git, self.cwd)
+
+        # Display the visual diff
+        viewer.display_summary()
 
     async def smart_commit(self, query: str):
-        """Create smart commit - delegates to GitTestManager."""
-        await self.git_test.smart_commit(query)
+        """Create a smart commit."""
+        status = self.git.get_status()
+
+        if not status.is_repo:
+            self.console.print("[red]Not in a git repository[/red]")
+            return
+
+        if not status.has_changes:
+            self.console.print("[yellow]No changes to commit[/yellow]")
+            return
+
+        # Check if message provided
+        message = None
+        if len(query.strip()) > 7:  # More than just "/commit"
+            message = query[7:].strip()
+
+        # Generate message if not provided
+        if not message:
+            all_files = status.staged_files + status.modified_files + status.untracked_files
+            message = self.git.create_smart_commit_message(all_files)
+            self.console.print(f"\n[bold]Generated commit message:[/bold]")
+            self.console.print(f"  {message}\n")
+
+            # Ask for confirmation
+            from rich.prompt import Confirm
+            if not Confirm.ask("Use this message?"):
+                self.console.print("[yellow]Commit cancelled[/yellow]")
+                return
+
+        # Stage all changed files
+        files_to_commit = status.modified_files + status.untracked_files
+        if files_to_commit:
+            success, msg = self.git.stage_files(files_to_commit)
+            if not success:
+                self.console.print(f"[red]Failed to stage files: {msg}[/red]")
+                return
+
+        # Create commit
+        success, msg = self.git.commit(message)
+        if success:
+            self.console.print(f"[green]✓ {msg}[/green]")
+            self.memory.add_checkpoint(f"Committed: {message}")
+        else:
+            self.console.print(f"[red]✗ {msg}[/red]")
 
     async def run_tests(self, file_filter: Optional[str] = None):
-        """Run tests - delegates to GitTestManager."""
-        await self.git_test.run_tests(file_filter)
+        """Run project tests using the smart test runner."""
+        self.console.print(f"\n[bold]Running tests...[/bold] (Framework: {self.test_runner.framework.value})\n")
 
-    def _display_test_result(self, result):
-        """Display test results - delegates to GitTestManager."""
-        self.git_test.display_test_result(result)
+        # Run tests
+        import asyncio
+        result = await asyncio.to_thread(self.test_runner.run_tests, file_filter)
+
+        # Display results
+        self._display_test_result(result)
+
+        # Update state tracker
+        if result.status.value == "failed":
+            self.state_tracker.record_test_failure([
+                {"name": f.test_name, "error": f.error_message}
+                for f in result.failures
+            ])
+        else:
+            self.state_tracker.record_test_success()
+
+        # Update session with test status
+        self.session_manager.update_test_status({
+            'total': result.total_tests,
+            'passed': result.passed,
+            'failed': result.failed,
+            'skipped': result.skipped,
+            'duration': result.duration
+        })
+
+    def _display_test_result(self, result: TestResult):
+        """Display test results in a beautiful format."""
+        # Summary panel
+        status_icon = "✓" if result.success else "✗"
+        status_color = "green" if result.success else "red"
+
+        summary = (
+            f"[bold]{result.framework.value.upper()} Test Results[/bold]\n\n"
+            f"Tests: [{status_color}]{result.total_tests}[/{status_color}]\n"
+            f"Passed: [green]{result.passed}[/green]\n"
+            f"Failed: [red]{result.failed}[/red]\n"
+        )
+
+        if result.skipped > 0:
+            summary += f"Skipped: [yellow]{result.skipped}[/yellow]\n"
+
+        if result.duration > 0:
+            summary += f"Duration: [cyan]{result.duration:.2f}s[/cyan]\n"
+
+        if result.total_tests > 0:
+            summary += f"Pass Rate: [cyan]{result.pass_rate:.1f}%[/cyan]"
+
+        self.console.print(Panel(
+            summary,
+            title=f"{status_icon} Test Results",
+            border_style=status_color
+        ))
+
+        # Show failures if any
+        if result.failures:
+            self.console.print("\n[bold red]Failures:[/bold red]\n")
+            for failure in result.failures:
+                self.console.print(f"  ❌ {failure.test_name}")
+                if failure.file_path:
+                    self.console.print(f"     File: [cyan]{failure.file_path}[/cyan]")
+                if failure.error_message:
+                    # Truncate long error messages
+                    error = failure.error_message[:200]
+                    if len(failure.error_message) > 200:
+                        error += "..."
+                    self.console.print(f"     Error: [dim]{error}[/dim]")
+                self.console.print()
 
     async def start_watch_mode(self):
-        """Start test watch mode - delegates to GitTestManager."""
-        await self.git_test.start_watch_mode()
+        """Start test watch mode."""
+        if self.test_watcher and self.test_watcher.is_running:
+            self.console.print("[yellow]Watch mode already running[/yellow]")
+            return
+
+        self.console.print("\n[bold cyan]Starting test watch mode...[/bold cyan]")
+        self.console.print(f"Framework: [green]{self.test_runner.framework.value}[/green]")
+        self.console.print(f"Watching: [cyan]{self.cwd}[/cyan]")
+        self.console.print("\n[dim]Tests will run automatically when files change[/dim]")
+        self.console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+        # Create watcher with callback
+        self.test_watcher = TestWatcher(
+            self.test_runner,
+            on_test_complete=self._on_watch_test_complete
+        )
+
+        await self.test_watcher.start()
+
+        # Run tests once on start
+        self.console.print("[dim]Running initial test suite...[/dim]\n")
+        result = await asyncio.to_thread(self.test_runner.run_tests)
+        self._display_test_result(result)
+
+        try:
+            # Keep running until interrupted
+            while self.test_watcher.is_running:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            self.console.print("\n[yellow]Stopping watch mode...[/yellow]")
+            self.stop_watch_mode()
 
     def stop_watch_mode(self):
-        """Stop test watch mode - delegates to GitTestManager."""
-        self.git_test.stop_watch_mode()
+        """Stop test watch mode."""
+        if self.test_watcher:
+            self.test_watcher.stop()
+            self.test_watcher = None
+            self.console.print("[green]✓ Watch mode stopped[/green]")
 
-    def _on_watch_test_complete(self, result):
-        """Watch mode callback - delegates to GitTestManager."""
-        self.git_test._on_watch_test_complete(result)
+    def _on_watch_test_complete(self, result: TestResult):
+        """Callback when watch mode tests complete."""
+        self.console.print("\n" + "─" * 80 + "\n")
+        self.console.print("[bold]Tests completed[/bold]")
+        self._display_test_result(result)
 
     async def show_related_files(self, file_or_query: str):
         """Show files related to a file or query."""
