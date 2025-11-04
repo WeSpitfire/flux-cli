@@ -3,6 +3,7 @@
 import subprocess
 import re
 import json
+import asyncio
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 from dataclasses import dataclass, field
@@ -65,38 +66,7 @@ class TestResult:
         return (self.passed / self.total_tests) * 100
 
 
-class AutoTester(TestRunner):
-    """Automatically runs tests to verify fixes."""
-
-    def __init__(self, cwd: Path):
-        super().__init__(cwd)
-
-    def run_auto_tests(self, fix_applied_callback: Optional[callable] = None) -> TestResult:
-        """Run tests automatically after a fix is applied.
-
-        Args:
-            fix_applied_callback: Optional callback to execute after a fix is applied
-
-        Returns:
-            TestResult with parsed information
-        """
-        if fix_applied_callback:
-            fix_applied_callback()
-
-        # Run tests
-        result = self.run_tests()
-
-        # Log the result
-        if result.success:
-            print("All tests passed successfully.")
-        else:
-            print("Some tests failed. Check the details:")
-            for failure in result.failures:
-                print(f"Test: {failure.test_name}, Error: {failure.error_message}")
-
-        return result
-
-
+class TestRunner:
     """Smart test runner with framework detection and result parsing."""
 
     def __init__(self, cwd: Path):
@@ -439,3 +409,49 @@ class AutoTester(TestRunner):
                         test_files.append(test_file)
 
         return test_files
+
+
+class AutoTester(TestRunner):
+    """Automatically runs tests to verify fixes.
+
+    Extends TestRunner to add automatic test execution after fixes are applied.
+    Useful for self-healing systems that need to validate fixes.
+    """
+
+    def __init__(self, cwd: Path):
+        """Initialize AutoTester.
+
+        Args:
+            cwd: Current working directory
+        """
+        super().__init__(cwd)
+
+    async def run_auto_tests(self, fix_applied_callback: Optional[callable] = None) -> TestResult:
+        """Run tests automatically after a fix is applied.
+
+        Args:
+            fix_applied_callback: Optional callback to execute after a fix is applied.
+                                 This can be used to apply the fix before running tests.
+
+        Returns:
+            TestResult with parsed information about test execution
+        """
+        # Execute the fix callback if provided
+        if fix_applied_callback:
+            if asyncio.iscoroutinefunction(fix_applied_callback):
+                await fix_applied_callback()
+            else:
+                fix_applied_callback()
+
+        # Run tests using parent TestRunner
+        result = self.run_tests()
+
+        # Log the result to console
+        if result.success:
+            print(f"✓ All {result.passed} tests passed successfully.")
+        else:
+            print(f"✗ {result.failed}/{result.total_tests} tests failed:")
+            for failure in result.failures:
+                print(f"  - {failure.test_name}: {failure.error_message}")
+
+        return result

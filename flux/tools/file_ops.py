@@ -492,11 +492,22 @@ ON ERROR: Check file permissions and path validity."""
                     description=f"{desc} {file_path.name}"
                 )
 
-            return {
+            result = {
                 "success": True,
                 "path": str(file_path),
                 "bytes_written": len(content.encode('utf-8'))
             }
+
+            # POST-WRITE VALIDATION: Add reminder to LLM to read back and verify
+            # This encourages self-checking behavior
+            if file_path.suffix == '.py':
+                result["validation_reminder"] = (
+                    "IMPORTANT: Read back this file in your next turn to verify "
+                    "all method calls, imports, and logic are correct before proceeding."
+                )
+
+            return result
+
         except Exception as e:
             return {"error": str(e)}
 
