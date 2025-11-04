@@ -179,7 +179,9 @@ Available tools:
 
 Your job: Given a user goal, create a JSON plan with steps that use these tools.
 
-Output format:
+IMPORTANT: You MUST respond with ONLY valid JSON. No explanations, no markdown, no text before or after the JSON.
+
+Output format (exactly this structure):
 {{
   "steps": [
     {{
@@ -231,21 +233,59 @@ Plan:
 
 Now create a plan for the user's goal."""
 
-        # Ask LLM to create plan
-        response = self.llm.send_message(
-            message=f"Goal: {goal}",
-            system_prompt=system_prompt,
-            tools=[]  # No tool use, just JSON response
-        )
+        # Ask LLM to create plan with JSON mode if supported
+        # Try to use response_format for OpenAI models
+        if hasattr(self.llm, 'client'):  # OpenAI provider
+            # Use OpenAI's JSON mode for guaranteed JSON response
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Goal: {goal}"}
+            ]
 
-        # Parse response
-        # For now, use a simple approach - in production would parse JSON properly
-        plan_text = ""
-        async for event in response:
-            if event["type"] == "text":
-                plan_text += event["content"]
+            try:
+                # Use direct OpenAI client with response_format
+                completion = await self.llm.client.chat.completions.create(
+                    model=self.llm.config.model,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                    temperature=0.1,  # Lower temp for more consistent JSON
+                    stream=False
+                )
+                plan_text = completion.choices[0].message.content
+            except Exception:
+                # Fallback to regular send_message
+                response = self.llm.send_message(
+                    message=f"Goal: {goal}",
+                    system_prompt=system_prompt,
+                    tools=[]
+                )
+                plan_text = ""
+                async for event in response:
+                    if event["type"] == "text":
+                        plan_text += event["content"]
+        else:
+            # For non-OpenAI providers, use regular method
+            response = self.llm.send_message(
+                message=f"Goal: {goal}",
+                system_prompt=system_prompt,
+                tools=[]  # No tool use, just JSON response
+            )
+            plan_text = ""
+            async for event in response:
+                if event["type"] == "text":
+                    plan_text += event["content"]
 
         # Parse JSON plan
+        # Clean up response - remove markdown code blocks if present
+        plan_text = plan_text.strip()
+        if plan_text.startswith("```json"):
+            plan_text = plan_text[7:]  # Remove ```json
+        elif plan_text.startswith("```"):
+            plan_text = plan_text[3:]  # Remove ```
+        if plan_text.endswith("```"):
+            plan_text = plan_text[:-3]  # Remove trailing ```
+        plan_text = plan_text.strip()
+
         try:
             plan_data = json.loads(plan_text)
             steps = [
