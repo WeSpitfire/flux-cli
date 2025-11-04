@@ -168,6 +168,10 @@ class CLI:
             workflow_manager=self.workflow_manager
         )
 
+        # Input blocking state for preventing mid-stream commands
+        self._llm_processing = False
+        self._processing_cancelled = False
+
     async def build_codebase_graph(self) -> None:
         """Build the codebase semantic graph (runs in background)."""
         if self._graph_building or self.codebase_graph:
@@ -276,6 +280,16 @@ class CLI:
                 # Show contextual suggestions before prompt (only in interactive mode)
                 if self._enable_paste_mode:
                     self._maybe_show_suggestions()
+
+                # BLOCK INPUT if LLM is processing
+                if self._llm_processing:
+                    self.console.print("[yellow]⏳ Please wait for current operation to complete, or press Ctrl+C to cancel[/yellow]")
+                    # Show a persistent indicator until processing completes
+                    import asyncio
+                    while self._llm_processing:
+                        await asyncio.sleep(0.1)
+                    # After processing completes, show prompt again
+                    self.console.print("[dim]✓ Ready for next command[/dim]")
 
                 # Get user input (show prompt only in real terminal, not when piped from desktop app)
                 if self._enable_paste_mode:
@@ -1042,8 +1056,16 @@ class CLI:
                 await self.process_query(query)
 
             except KeyboardInterrupt:
-                self.console.print("\n[cyan]Goodbye![/cyan]")
-                break
+                # If we're processing, cancel it. Otherwise, exit.
+                if self._llm_processing:
+                    self._processing_cancelled = True
+                    self._llm_processing = False
+                    self.console.print("\n[yellow]⏹️  Operation cancelled[/yellow]")
+                    # Clear any partial state
+                    continue
+                else:
+                    self.console.print("\n[cyan]Goodbye![/cyan]")
+                    break
             except Exception as e:
                 self.console.print(f"\n[red]Error: {e}[/red]")
 
@@ -1060,6 +1082,22 @@ class CLI:
 
     async def process_with_orchestrator(self, query: str):
         """Process a query using the AI orchestrator.
+
+        Args:
+            query: User's natural language goal
+        """
+        # Set processing flag to block new input
+        self._llm_processing = True
+        self._processing_cancelled = False
+
+        try:
+            await self._process_with_orchestrator_impl(query)
+        finally:
+            # Always clear processing flag when done
+            self._llm_processing = False
+
+    async def _process_with_orchestrator_impl(self, query: str):
+        """Internal implementation of process_with_orchestrator.
 
         Args:
             query: User's natural language goal
@@ -1211,6 +1249,22 @@ class CLI:
         Args:
             query: User's query or question
         """
+        # Set processing flag to block new input
+        self._llm_processing = True
+        self._processing_cancelled = False
+
+        try:
+            await self._process_query_normal_impl(query)
+        finally:
+            # Always clear processing flag when done
+            self._llm_processing = False
+
+    async def _process_query_normal_impl(self, query: str):
+        """Internal implementation of process_query_normal.
+
+        Args:
+            query: User's query or question
+        """
         # Check token usage and warn if approaching limits
         usage = self.llm.get_token_usage()
         max_tokens = getattr(self.config, 'max_history', 8000)
@@ -1258,6 +1312,11 @@ class CLI:
             system_prompt=system_prompt,
             tools=self.tools.get_all_schemas()
         ):
+            # Check if user cancelled
+            if self._processing_cancelled:
+                self.console.print("\n[yellow]Cancelled by user[/yellow]")
+                return
+
             if event["type"] == "text":
                 # Stream text to console
                 content = event["content"]
@@ -1306,14 +1365,23 @@ class CLI:
         if response_text:
             self.console.print()
 
+        # Check if cancelled before executing tools
+        if self._processing_cancelled:
+            return
+
         # Execute tools NOW (after LLM finished generating all tool_calls)
         if tool_uses:
             self.console.print()
             for tool_use in tool_uses:
+                # Check cancellation before each tool
+                if self._processing_cancelled:
+                    self.console.print("[yellow]Remaining tool executions cancelled[/yellow]")
+                    return
                 await self.execute_tool(tool_use)
 
             # Continue conversation with tool results
-            await self.continue_after_tools()
+            if not self._processing_cancelled:
+                await self.continue_after_tools()
 
     async def execute_tool(self, tool_use: dict):
         """Execute a tool and display results."""
