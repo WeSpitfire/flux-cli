@@ -97,6 +97,11 @@ class CLI:
         # Initialize failure tracker
         self.failure_tracker = FailureTracker()
 
+        # Initialize tool success tracker for metrics
+        from flux.core.tool_metrics import ToolSuccessTracker
+        metrics_path = config.flux_dir / "tool_metrics.json"
+        self.tool_metrics = ToolSuccessTracker(storage_path=metrics_path)
+
         # Initialize smart background processor
         self.bg_processor = SmartBackgroundProcessor(cwd)
 
@@ -926,6 +931,12 @@ class CLI:
                     self.console.print(Panel(summary, title="⚡ Background Processing", border_style="blue"))
                     continue
 
+                if query.lower() == '/metrics':
+                    # Show tool success metrics
+                    summary = self.tool_metrics.get_summary()
+                    self.console.print(Panel(summary, title="📊 Tool Reliability Metrics", border_style="cyan"))
+                    continue
+
                 if query.lower() == '/validate':
                     # Validate modified files in this session
                     modified_files = self.workflow.get_modified_files()
@@ -1545,8 +1556,15 @@ class CLI:
 
         # Execute tool
         try:
+            import time
+            start_time = time.time()
+
             result = await self.tools.execute(tool_name, **tool_input)
             success = not (isinstance(result, dict) and "error" in result)
+
+            # Record metrics
+            execution_time_ms = (time.time() - start_time) * 1000
+            self.tool_metrics.record_attempt(tool_name, success, execution_time_ms)
 
             # Log tool execution
             self.debug_logger.log_tool_call(tool_name, tool_input, result, success)
@@ -1758,6 +1776,14 @@ class CLI:
                 title="✓ Result",
                 border_style="green"
             ))
+
+            # Show subtle workflow progress indicator
+            if self.workflow.context:
+                files_read = len(self.workflow.context.files_read)
+                stage = self.workflow.context.stage.value
+                self.console.print(
+                    f"[dim]Workflow: {stage} | Files read: {files_read}[/dim]"
+                )
 
         except KeyboardInterrupt:
             # User cancelled during tool execution
