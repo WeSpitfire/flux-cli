@@ -1274,7 +1274,17 @@ The workflow has finished. I'm ready for your next question or task."""
                     await self.bg_processor.schedule_and_run(tasks)
 
             elif event["type"] == "tool_use":
+                # STREAMING EXECUTION: Execute tool immediately as it's generated
+                # This gives instant feedback instead of waiting for all tools to generate
                 tool_uses.append(event)
+
+                # Add newline if this is the first tool
+                if len(tool_uses) == 1 and response_text:
+                    self.console.print()
+
+                # Execute tool immediately
+                self.console.print()
+                await self.execute_tool(event)
 
         # Log LLM response
         self.debug_logger.log_llm_response(response_text, tool_uses)
@@ -1306,13 +1316,9 @@ The workflow has finished. I'm ready for your next question or task."""
         if response_text:
             self.console.print()
 
-        # Execute tools
+        # Tools already executed during streaming (line 1287)
+        # Just continue conversation with their results
         if tool_uses:
-            self.console.print()
-            for tool_use in tool_uses:
-                await self.execute_tool(tool_use)
-
-            # Continue conversation with tool results
             await self.continue_after_tools()
 
     async def execute_tool(self, tool_use: dict):
