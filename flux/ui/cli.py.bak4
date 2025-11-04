@@ -933,28 +933,416 @@ class CLI:
         self.git_test._on_watch_test_complete(result)
 
     async def show_related_files(self, file_or_query: str):
-        """Show related files - delegates to CodebaseAnalyzer."""
-        await self.codebase_analyzer.show_related_files(file_or_query)
+        """Show files related to a file or query."""
+        # Build graph if not built
+        if not self.codebase_graph:
+            await self.build_codebase_graph()
+
+        if not self.codebase_graph:
+            self.console.print("[red]Could not build codebase graph[/red]")
+            return
+
+        # Find related files
+        related = self.codebase_graph.find_related_files(file_or_query, limit=10)
+
+        if not related:
+            self.console.print(f"[yellow]No related files found for '{file_or_query}'[/yellow]")
+            return
+
+        self.console.print(f"\n[bold]Related files for '{file_or_query}':[/bold]\n")
+        for file_path, score in related:
+            # Show file with score indicator
+            score_indicator = "🔥" if score > 10 else "🔹" if score > 5 else "🔸"
+            self.console.print(f"  {score_indicator} [cyan]{file_path}[/cyan] [dim](score: {score:.1f})[/dim]")
+
+            # Show file context
+            context = self.codebase_graph.get_file_context(file_path)
+            if context.get('entities'):
+                entities = context['entities'][:3]  # Show first 3
+                for ent in entities:
+                    self.console.print(f"     - {ent['type']}: {ent['name']}")
+
+        self.console.print()
 
     async def show_file_preview(self, file_path: str):
-        """Show file preview - delegates to CodebaseAnalyzer."""
-        await self.codebase_analyzer.show_file_preview(file_path)
+        """Show preview of what would happen if file is modified."""
+        if not self.impact_analyzer:
+            self.console.print("[yellow]Impact analyzer not available. Run /index first.[/yellow]")
+            return
+
+        # Read current file
+        full_path = self.cwd / file_path
+        if not full_path.exists():
+            self.console.print(f"[red]File not found: {file_path}[/red]")
+            return
+
+        try:
+            with open(full_path, 'r') as f:
+                current_content = f.read()
+        except Exception as e:
+            self.console.print(f"[red]Error reading file: {e}[/red]")
+            return
+
+        # Show current file info
+        self.console.print(f"\n[bold]Preview for:[/bold] [cyan]{file_path}[/cyan]\n")
+
+        # Get file context from codebase graph
+        if self.codebase_graph and file_path in self.codebase_graph.files:
+            context = self.codebase_graph.get_file_context(file_path)
+
+            self.console.print(f"[bold]Current State:[/bold]")
+            self.console.print(f"  Language: {context.get('language', 'unknown')}")
+            self.console.print(f"  Entities: {len(context.get('entities', []))}")
+
+            if context.get('entities'):
+                self.console.print(f"\n[bold]Defined in this file:[/bold]")
+                for entity in context['entities'][:5]:
+                    self.console.print(f"  - {entity['type']}: {entity['name']} (line {entity['line']})")
+
+            if context.get('dependencies'):
+                self.console.print(f"\n[bold]Dependencies:[/bold]")
+                for dep in context['dependencies'][:3]:
+                    self.console.print(f"  → {dep}")
+
+            if context.get('dependents'):
+                self.console.print(f"\n[bold]Files that depend on this:[/bold]")
+                for dep in context['dependents'][:3]:
+                    self.console.print(f"  ← {dep}")
+                if len(context['dependents']) > 3:
+                    self.console.print(f"  ... and {len(context['dependents']) - 3} more")
+
+        self.console.print(f"\n[dim]To see impact of specific changes, modify the file and Flux will show the analysis.[/dim]")
+        self.console.print()
 
     def show_impact_analysis(self, impact, show_diff: bool = False):
-        """Show impact analysis - delegates to CodebaseAnalyzer."""
-        self.codebase_analyzer.show_impact_analysis(impact, show_diff)
+        """Display impact analysis in a beautiful format."""
+        from flux.core.impact_analyzer import ImpactLevel
+
+        # Impact level badge
+        level_colors = {
+            ImpactLevel.LOW: "green",
+            ImpactLevel.MEDIUM: "yellow",
+            ImpactLevel.HIGH: "red",
+            ImpactLevel.CRITICAL: "bold red"
+        }
+        level_emoji = {
+            ImpactLevel.LOW: "🟢",
+            ImpactLevel.MEDIUM: "🟡",
+            ImpactLevel.HIGH: "🔴",
+            ImpactLevel.CRITICAL: "⚫"
+        }
+
+        color = level_colors.get(impact.impact_level, "white")
+        emoji = level_emoji.get(impact.impact_level, "○")
+
+        self.console.print(f"\n[bold]📊 Impact Analysis[/bold]")
+        self.console.print("=" * 50)
+
+        # Summary
+        self.console.print(f"\n[{color}]{emoji} {impact.impact_level.value.upper()}[/{color}] - {impact.change_type.value}")
+        self.console.print(f"Confidence: [{self._get_confidence_color(impact.confidence_score)}]{impact.confidence_score * 100:.0f}%[/]")
+
+        # What's affected
+        if impact.functions_affected:
+            self.console.print(f"\n[bold]Functions:[/bold] {', '.join(impact.functions_affected[:5])}")
+            if len(impact.functions_affected) > 5:
+                self.console.print(f"  ... and {len(impact.functions_affected) - 5} more")
+
+        if impact.classes_affected:
+            self.console.print(f"[bold]Classes:[/bold] {', '.join(impact.classes_affected)}")
+
+        if impact.dependencies_affected:
+            self.console.print(f"\n[bold]Dependencies affected:[/bold]")
+            for dep in impact.dependencies_affected:
+                self.console.print(f"  ← {dep}")
+
+        # Dependency Impact Tree
+        if impact.dependency_tree:
+            self._show_dependency_tree(impact)
+
+        # Warnings
+        if impact.warnings:
+            self.console.print(f"\n[bold yellow]Warnings:[/bold yellow]")
+            for warning in impact.warnings:
+                self.console.print(f"  {warning}")
+
+        # Suggestions
+        if impact.suggestions:
+            self.console.print(f"\n[bold cyan]Suggestions:[/bold cyan]")
+            for suggestion in impact.suggestions:
+                self.console.print(f"  {suggestion}")
+
+        # Risk flags
+        if impact.breaks_existing_code:
+            self.console.print(f"\n[bold red]⚠️  May break existing code![/bold red]")
+        if impact.requires_migration:
+            self.console.print(f"[bold yellow]⚠️  May require data migration[/bold yellow]")
+        if impact.affects_public_api:
+            self.console.print(f"[bold yellow]⚠️  Affects public API[/bold yellow]")
+
+        self.console.print("=" * 50)
+
+    def _get_confidence_color(self, confidence: float) -> str:
+        """Get color for confidence score."""
+        if confidence >= 0.95:
+            return "green"
+        elif confidence >= 0.80:
+            return "cyan"
+        elif confidence >= 0.60:
+            return "yellow"
+        else:
+            return "red"
+
+    def _show_dependency_tree(self, impact):
+        """Display visual dependency impact tree."""
+
+        self.console.print(f"\n[bold]🌳 Dependency Impact Tree:[/bold]")
+        self.console.print(f"[dim]Propagation depth: {impact.propagation_depth} layer(s)[/dim]\n")
+
+        # Group by impact type
+        direct_deps = {k: v for k, v in impact.dependency_tree.items() if v.impact_type == "direct"}
+        indirect_deps = {k: v for k, v in impact.dependency_tree.items() if v.impact_type == "indirect"}
+        test_deps = {k: v for k, v in impact.dependency_tree.items() if v.impact_type == "test"}
+
+        # Show direct dependencies
+        if direct_deps:
+            self.console.print(f"[bold cyan]Direct Impact:[/bold cyan]")
+            for file_path, dep_impact in list(direct_deps.items())[:8]:  # Limit display
+                self._show_dependency_node(file_path, dep_impact, prefix="  ")
+
+        # Show test dependencies
+        if test_deps:
+            self.console.print(f"\n[bold yellow]Test Files:[/bold yellow]")
+            for file_path, dep_impact in list(test_deps.items())[:5]:
+                self._show_dependency_node(file_path, dep_impact, prefix="  ")
+
+        # Show indirect dependencies
+        if indirect_deps:
+            self.console.print(f"\n[bold magenta]Indirect Impact:[/bold magenta]")
+            for file_path, dep_impact in list(indirect_deps.items())[:5]:
+                self._show_dependency_node(file_path, dep_impact, prefix="  ", show_details=False)
+
+        # Summary
+        total_deps = len(impact.dependency_tree)
+        if total_deps > 18:  # If we didn't show all
+            self.console.print(f"\n[dim]... and {total_deps - 18} more files affected[/dim]")
+
+    def _show_dependency_node(self, file_path: str, dep_impact, prefix: str = "", show_details: bool = True):
+        """Display a single dependency node."""
+        # Risk emoji and color
+        risk_emoji = {
+            "high": "🔴",
+            "medium": "🟡",
+            "low": "🟢"
+        }
+        risk_color = {
+            "high": "red",
+            "medium": "yellow",
+            "low": "green"
+        }
+
+        emoji = risk_emoji.get(dep_impact.break_risk, "○")
+        color = risk_color.get(dep_impact.break_risk, "white")
+
+        # File path with risk indicator
+        self.console.print(f"{prefix}├─ {emoji} [{color}]{file_path}[/{color}]")
+
+        if show_details:
+            # Show what functions/classes are used
+            if dep_impact.functions_used:
+                funcs = ", ".join(dep_impact.functions_used[:3])
+                if len(dep_impact.functions_used) > 3:
+                    funcs += f" +{len(dep_impact.functions_used) - 3}"
+                self.console.print(f"{prefix}│  [dim]→ uses functions: {funcs}[/dim]")
+
+            if dep_impact.classes_used:
+                classes = ", ".join(dep_impact.classes_used[:3])
+                if len(dep_impact.classes_used) > 3:
+                    classes += f" +{len(dep_impact.classes_used) - 3}"
+                self.console.print(f"{prefix}│  [dim]→ uses classes: {classes}[/dim]")
+
+            # Show break risk if not low
+            if dep_impact.break_risk != "low":
+                self.console.print(f"{prefix}│  [{color}]⚠ {dep_impact.break_risk} risk of breaking[/{color}]")
 
     async def show_architecture(self):
-        """Show architecture - delegates to CodebaseAnalyzer."""
-        await self.codebase_analyzer.show_architecture()
+        """Show detected architecture patterns."""
+        # Build graph if not built
+        if not self.codebase_graph:
+            await self.build_codebase_graph()
+
+        if not self.codebase_graph:
+            self.console.print("[red]Could not build codebase graph[/red]")
+            return
+
+        patterns = self.codebase_graph.detect_architecture_patterns()
+
+        self.console.print("\n[bold]Project Architecture:[/bold]\n")
+        self.console.print(f"  Framework: [cyan]{patterns.get('framework', 'Unknown')}[/cyan]")
+        self.console.print(f"  Structure: [cyan]{patterns.get('structure', 'Unknown')}[/cyan]")
+        self.console.print(f"  Testing: [cyan]{patterns.get('testing', 'None detected')}[/cyan]")
+        self.console.print(f"  Has tests: [{'green' if patterns.get('has_tests') else 'red'}]{patterns.get('has_tests')}[/]")
+        self.console.print(f"  Has docs: [{'green' if patterns.get('has_docs') else 'red'}]{patterns.get('has_docs')}[/]")
+
+        # Show file/entity statistics
+        self.console.print(f"\n[bold]Statistics:[/bold]")
+        self.console.print(f"  Total files: [cyan]{len(self.codebase_graph.files)}[/cyan]")
+        self.console.print(f"  Total entities: [cyan]{len(self.codebase_graph.entities)}[/cyan]")
+
+        # Show most connected files
+        most_connected = sorted(
+            self.codebase_graph.files.items(),
+            key=lambda x: len(x[1].dependencies) + len(x[1].dependents),
+            reverse=True
+        )[:5]
+
+        if most_connected:
+            self.console.print(f"\n[bold]Most Connected Files:[/bold]")
+            for file_path, file_node in most_connected:
+                connections = len(file_node.dependencies) + len(file_node.dependents)
+                self.console.print(f"  [cyan]{file_path}[/cyan] [dim]({connections} connections)[/dim]")
+
+        self.console.print()
 
     async def analyze_file_structure(self, file_path: str):
-        """Analyze file structure - delegates to CodebaseAnalyzer."""
-        await self.codebase_analyzer.analyze_file_structure(file_path)
+        """Analyze file structure for large files before editing.
+
+        Uses LargeFileHandler to provide intelligent guidance on how to
+        read and edit large files efficiently.
+        """
+        from flux.core.large_file_handler import get_handler
+        from pathlib import Path
+
+        # Resolve file path
+        full_path = self.cwd / file_path if not Path(file_path).is_absolute() else Path(file_path)
+
+        if not full_path.exists():
+            self.console.print(f"[red]File not found: {file_path}[/red]")
+            return
+
+        try:
+            # Get handler and analyze
+            handler = get_handler()
+            analysis = handler.analyze_file(full_path)
+            guide = handler.get_reading_guide(full_path)
+
+            # Display analysis
+            self.console.print(f"\n[bold]📊 File Structure Analysis[/bold]")
+            self.console.print("=" * 70)
+            self.console.print()
+
+            # Show the guide (it's already formatted nicely)
+            self.console.print(guide)
+
+            self.console.print("\n" + "=" * 70)
+            self.console.print("[dim]💡 Tip: Use the commands above to read specific sections efficiently[/dim]")
+            self.console.print()
+
+        except Exception as e:
+            self.console.print(f"[red]Error analyzing file: {e}[/red]")
 
     async def show_suggestions(self):
-        """Show suggestions - delegates to CodebaseAnalyzer."""
-        await self.codebase_analyzer.show_suggestions()
+        """Show proactive AI suggestions."""
+        # Build graph and initialize suggestions engine if needed
+        if not self.suggestions_engine:
+            await self.build_codebase_graph()
+
+        if not self.suggestions_engine:
+            self.console.print("[red]Suggestions engine not available[/red]")
+            return
+
+        # Get suggestions
+        suggestions = self.suggestions_engine.get_suggestions(max_suggestions=10, min_priority=Priority.LOW)
+
+        if not suggestions:
+            self.console.print("\n[dim]No structural suggestions detected.[/dim]")
+            self.console.print("[dim]For deeper feature analysis, ask: 'Review this codebase and suggest specific improvements'[/dim]\n")
+            return
+
+        # Display suggestions
+        self.console.print("\n[bold]💡 Proactive Suggestions:[/bold]")
+        self.console.print("=" * 60)
+
+        # Group by priority
+        by_priority = {}
+        for s in suggestions:
+            if s.priority not in by_priority:
+                by_priority[s.priority] = []
+            by_priority[s.priority].append(s)
+
+        priority_order = [Priority.CRITICAL, Priority.HIGH, Priority.MEDIUM, Priority.LOW]
+
+        for priority in priority_order:
+            if priority not in by_priority:
+                continue
+
+            priority_suggestions = by_priority[priority]
+
+            # Priority header
+            priority_emoji = {
+                Priority.CRITICAL: "🔴",
+                Priority.HIGH: "🟠",
+                Priority.MEDIUM: "🟡",
+                Priority.LOW: "🟢"
+            }
+            priority_color = {
+                Priority.CRITICAL: "red",
+                Priority.HIGH: "yellow",
+                Priority.MEDIUM: "cyan",
+                Priority.LOW: "green"
+            }
+
+            emoji = priority_emoji.get(priority, "○")
+            color = priority_color.get(priority, "white")
+
+            self.console.print(f"\n[{color}]{emoji} {priority.value.upper()}[/{color}]")
+
+            # Show suggestions
+            for i, suggestion in enumerate(priority_suggestions, 1):
+                self._show_suggestion(suggestion, index=i)
+
+        self.console.print("\n" + "=" * 60)
+        self.console.print("[dim]Tip: Ask Flux to implement any of these suggestions![/dim]\n")
+
+    def _show_suggestion(self, suggestion, index: int):
+        """Display a single suggestion."""
+        # Type icon
+        type_icons = {
+            "next_action": "▶️",
+            "code_quality": "✨",
+            "security": "🔒",
+            "performance": "⚡",
+            "testing": "🧪",
+            "documentation": "📝",
+            "refactoring": "♻️"
+        }
+        icon = type_icons.get(suggestion.type.value, "•")
+
+        # Title
+        self.console.print(f"\n  {index}. {icon} [bold]{suggestion.title}[/bold]")
+
+        # Description
+        self.console.print(f"     [dim]{suggestion.description}[/dim]")
+
+        # File and line
+        if suggestion.file_path:
+            location = f"{suggestion.file_path}"
+            if suggestion.line_number:
+                location += f":{suggestion.line_number}"
+            self.console.print(f"     📍 {location}")
+
+        # Action (what Flux can do)
+        if suggestion.action:
+            self.console.print(f"     💡 [cyan]{suggestion.action}[/cyan]")
+
+        # Confidence
+        confidence_color = self._get_confidence_color(suggestion.confidence)
+        self.console.print(f"     Confidence: [{confidence_color}]{suggestion.confidence * 100:.0f}%[/{confidence_color}]")
+
+        # Reasoning
+        if suggestion.reasoning:
+            self.console.print(f"     [dim italic]Why: {suggestion.reasoning}[/dim italic]")
+
     # Workspace Intelligence Commands
 
     async def handle_session_command(self, args: str):
