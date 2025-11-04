@@ -1102,6 +1102,23 @@ class CLI:
             else:
                 self.console.print("\n[bold yellow]⚠ Workflow completed with some errors[/bold yellow]")
 
+            # Add workflow to conversation history so user can continue
+            # This allows follow-up questions like "please continue" to work
+            workflow_summary = f"""I completed the following workflow:
+
+{result['summary']}
+
+The workflow has finished. I'm ready for your next question or task."""
+
+            # Add to conversation history (compatible with all providers)
+            self.llm.conversation_history.append({"role": "user", "content": query})
+            self.llm.conversation_history.append({"role": "assistant", "content": workflow_summary})
+
+            # For OpenAI provider, also add to messages list
+            if hasattr(self.llm, 'messages'):
+                self.llm.messages.append({"role": "user", "content": query})
+                self.llm.messages.append({"role": "assistant", "content": workflow_summary})
+
         except Exception as e:
             self.console.print(f"\n[red]Orchestration error: {e}[/red]")
             self.console.print("[dim]Falling back to normal conversation mode...[/dim]")
