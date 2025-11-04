@@ -35,22 +35,19 @@
 
 ---
 
-## 🚧 Phase 2: CommandRouter (NEXT)
+## 🚧 Phase 2: CommandRouter (90% COMPLETE - CLEANUP NEEDED)
 
-**Estimated Lines to Save**: ~600  
+**Estimated Lines to Save**: ~617  
 **Target CLI Size**: ~2300 lines  
-**Time Estimate**: 3 hours
+**Time Spent**: 2.5 hours (90% done)
 
-### Plan
-1. Create `flux/ui/command_router.py`
-2. Move all command handlers:
-   - `/diff`, `/commit`, `/test`, `/watch`
-   - `/analyze`, `/metrics`, `/session`, `/task`
-   - `/index`, `/fix`, `/undo`, `/redo`
-   - `/suggest`, `/approve`, `/workflow`
-   - 20+ more slash commands
-3. Register handlers in a dict for clean routing
-4. CLI delegates: `await self.commands.handle(query)`
+### Completed
+1. ✅ Created `flux/ui/command_router.py` (705 lines)
+2. ✅ Moved 50+ command handlers to CommandRouter
+3. ✅ Registered handlers in dict for clean routing
+4. ✅ CLI delegates: `await self.commands.handle(query)`
+5. ✅ Integration into CLI.__init__ and run_interactive
+6. ❌ **REMAINING**: Remove ~617 lines of duplicate handlers in CLI
 
 ### Expected Result
 - CLI: 2300 lines (down from 2929)
