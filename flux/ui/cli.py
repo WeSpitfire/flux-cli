@@ -1174,9 +1174,24 @@ The workflow has finished. I'm ready for your next question or task."""
             if re.search(pattern, query_lower):
                 return False
 
+        # Avoid orchestration for continuation requests
+        # These should use normal conversation mode with existing context
+        continuation_patterns = [
+            r'^(continue|keep going|go on|proceed)',
+            r'(please|let\'?s)\s+(continue|keep)',
+            r'continue (building|implementing|working)',
+            r'finish (this|it|that|the)',
+            r'complete (this|it|that|the)',
+        ]
+
+        for pattern in continuation_patterns:
+            if re.search(pattern, query_lower):
+                return False
+
         # Default: use orchestrator for longer queries (likely tasks)
-        # But not for very simple queries
-        return len(query.split()) > 4 and len(query.split()) < 20
+        # But not for very simple queries or very long queries (likely explanations)
+        word_count = len(query.split())
+        return word_count > 4 and word_count < 20
 
     async def process_query(self, query: str):
         """Process a user query."""
