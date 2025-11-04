@@ -244,16 +244,21 @@ Now create a plan for the user's goal."""
 
             try:
                 # Use direct OpenAI client with response_format
-                completion = await self.llm.client.chat.completions.create(
-                    model=self.llm.config.model,
-                    messages=messages,
-                    response_format={"type": "json_object"},
-                    temperature=0.1,  # Lower temp for more consistent JSON
-                    stream=False
+                # Add timeout to prevent hanging
+                completion = await asyncio.wait_for(
+                    self.llm.client.chat.completions.create(
+                        model=self.llm.config.model,
+                        messages=messages,
+                        response_format={"type": "json_object"},
+                        temperature=0.1,  # Lower temp for more consistent JSON
+                        stream=False
+                    ),
+                    timeout=30.0  # 30 second timeout
                 )
                 plan_text = completion.choices[0].message.content
-            except Exception:
+            except (Exception, asyncio.TimeoutError) as e:
                 # Fallback to regular send_message
+                print(f"[DEBUG] OpenAI JSON mode failed ({type(e).__name__}), using fallback")
                 response = self.llm.send_message(
                     message=f"Goal: {goal}",
                     system_prompt=system_prompt,
