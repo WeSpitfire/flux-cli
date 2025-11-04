@@ -1272,17 +1272,9 @@ class CLI:
                     await self.bg_processor.schedule_and_run(tasks)
 
             elif event["type"] == "tool_use":
-                # STREAMING EXECUTION: Execute tool immediately as it's generated
-                # This gives instant feedback instead of waiting for all tools to generate
+                # Collect tools but DON'T execute yet - OpenAI requires all tool_calls
+                # to be in the assistant message before any tool results
                 tool_uses.append(event)
-
-                # Add newline if this is the first tool
-                if len(tool_uses) == 1 and response_text:
-                    self.console.print()
-
-                # Execute tool immediately
-                self.console.print()
-                await self.execute_tool(event)
 
         # Log LLM response
         self.debug_logger.log_llm_response(response_text, tool_uses)
@@ -1314,9 +1306,13 @@ class CLI:
         if response_text:
             self.console.print()
 
-        # Tools already executed during streaming (line 1287)
-        # Just continue conversation with their results
+        # Execute tools NOW (after LLM finished generating all tool_calls)
         if tool_uses:
+            self.console.print()
+            for tool_use in tool_uses:
+                await self.execute_tool(tool_use)
+
+            # Continue conversation with tool results
             await self.continue_after_tools()
 
     async def execute_tool(self, tool_use: dict):
