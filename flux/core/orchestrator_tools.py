@@ -104,17 +104,17 @@ def create_file_write_tool(tools_registry) -> ToolDefinition:
 
     async def execute(**params):
         """Write to files."""
-        file_path = params['file_path']
+        path = params.get('path') or params.get('file_path')  # Accept both
         content = params['content']
         tool = tools_registry.get('write_file')
-        return await tool.execute(file_path=file_path, content=content)
+        return await tool.execute(path=path, content=content)
 
     return ToolDefinition(
         name="write_file",
         description="Create or overwrite a file with new content",
         executor=execute,
         schema={
-            "file_path": {"type": "string", "description": "Path to file"},
+            "path": {"type": "string", "description": "Path to file (relative or absolute)"},
             "content": {"type": "string", "description": "File content"}
         },
         requires_approval=True,  # Creating files should be approved
