@@ -1,0 +1,86 @@
+# Example Flux Workflows
+# Place this file at `.flux/workflows.yaml` in your project root
+
+quick-check:
+  description: Quick validation before committing
+  steps:
+    - tool: run_command
+      description: Run lint checks
+      input:
+        command: npm run lint
+    - tool: run_command
+      description: Run tests
+      input:
+        command: npm test
+
+deploy-staging:
+  description: Deploy to staging environment
+  steps:
+    - tool: run_command
+      description: Build project
+      input:
+        command: npm run build
+    - tool: run_command
+      description: Run tests
+      input:
+        command: npm test
+    - tool: run_command
+      description: Deploy to staging
+      input:
+        command: npm run deploy:staging
+
+pr-ready:
+  description: Prepare for pull request
+  steps:
+    - tool: run_command
+      description: Format code
+      input:
+        command: npm run format
+    - tool: run_command
+      description: Run linter
+      input:
+        command: npm run lint
+    - tool: run_command
+      description: Run all tests
+      input:
+        command: npm test
+    - tool: run_command
+      description: Check git status
+      input:
+        command: git status
+
+fix-and-test:
+  description: Fix issues and verify with tests
+  steps:
+    - tool: run_command
+      description: Auto-fix linting issues
+      input:
+        command: npm run lint:fix
+    - tool: run_command
+      description: Run tests
+      input:
+        command: npm test
+
+full-ci:
+  description: Complete CI pipeline locally
+  steps:
+    - tool: run_command
+      description: Install dependencies
+      input:
+        command: npm install
+    - tool: run_command
+      description: Lint code
+      input:
+        command: npm run lint
+    - tool: run_command
+      description: Type check
+      input:
+        command: npm run typecheck
+    - tool: run_command
+      description: Run tests
+      input:
+        command: npm test
+    - tool: run_command
+      description: Build project
+      input:
+        command: npm run build
