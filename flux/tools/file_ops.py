@@ -9,6 +9,7 @@ from flux.core.syntax_checker import SyntaxChecker
 from flux.core.errors import file_not_found_error, search_not_found_error, syntax_error_response
 from flux.core.code_validator import CodeValidator
 from flux.core.smart_reader import SmartReader
+from flux.core.large_file_handler import get_handler
 from rich.console import Console
 
 
@@ -249,11 +250,28 @@ ON ERROR: Use list_files or find_files to discover correct paths."""
                         # Read file with line numbers
                         with open(path, 'r', encoding='utf-8') as f:
                             file_lines = f.readlines()
-                            content = "".join([f"{i+1}|{line}" for i, line in enumerate(file_lines)])
                             lines_count = len(file_lines)
 
+                            # CRITICAL: Auto-limit large files to prevent rate limit errors
+                            # For files >500 lines, use LargeFileHandler for intelligent guidance
+                            if lines_count > 500:
+                                # Use large file handler for analysis and guidance
+                                handler = get_handler()
+                                guide = handler.get_reading_guide(path)
+                                
+                                content = f"""File: {path.name} (unable to parse)
+
+This file has {lines_count} lines, which is too large to read at once.
+
+{guide}
+"""
+                                mode = "auto-limited"
+                            else:
+                                # Normal file - read with line numbers
+                                content = "".join([f"{i+1}|{line}" for i, line in enumerate(file_lines)])
+
                         # Cache the content for reuse in this workflow
-                        if self.workflow:
+                        if self.workflow and lines_count <= 500:
                             self.workflow.record_file_read(path, content)
 
                 # Count lines in content

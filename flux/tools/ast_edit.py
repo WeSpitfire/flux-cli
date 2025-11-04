@@ -14,10 +14,10 @@ from flux.core.errors import (
     syntax_error_response
 )
 from rich.console import Console
-import tree_sitter_python as tspython
-import tree_sitter_javascript as tsjavascript
-import tree_sitter_typescript as tstypescript
-from tree_sitter import Language, Parser, Node
+from tree_sitter_python._binding import language as python_language
+from tree_sitter_javascript._binding import language as javascript_language  
+from tree_sitter_typescript._binding import language_typescript, language_tsx
+from tree_sitter import Parser, Node
 
 
 class ASTEditTool(Tool):
@@ -25,11 +25,11 @@ class ASTEditTool(Tool):
 
     # Language mappings
     LANGUAGES = {
-        '.py': ('python', Language(tspython.language())),
-        '.js': ('javascript', Language(tsjavascript.language())),
-        '.jsx': ('javascript', Language(tsjavascript.language())),
-        '.ts': ('typescript', Language(tstypescript.language_typescript())),
-        '.tsx': ('tsx', Language(tstypescript.language_tsx())),
+        '.py': ('python', python_language()),
+        '.js': ('javascript', javascript_language()),
+        '.jsx': ('javascript', javascript_language()),
+        '.ts': ('typescript', language_typescript()),
+        '.tsx': ('tsx', language_tsx()),
     }
 
     def __init__(self, cwd: Path, show_diff: bool = True, undo_manager=None, workflow_enforcer=None, approval_manager=None):

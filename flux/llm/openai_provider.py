@@ -33,9 +33,10 @@ class OpenAIProvider(BaseLLMProvider):
         # OpenAI uses different conversation format
         self.messages: List[Dict[str, Any]] = []
         # Context manager for pruning history (configurable via --max-history)
-        # Default to 4000 for GPT-4o to stay well under 30K token/min limit
-        # (leaves ~26K for system prompt, tools, and response)
-        max_history = getattr(config, 'max_history', 4000)
+        # Default to 2000 for GPT-4o to stay well under 30K token/min limit
+        # GPT-4o limit: 30K tokens/min for input
+        # Budget: 2K history + 8K system+tools + 4K response = ~14K total (safe margin)
+        max_history = getattr(config, 'max_history', 2000)
         self.context_manager = ContextManager(max_context_tokens=max_history)
 
     async def send_message(

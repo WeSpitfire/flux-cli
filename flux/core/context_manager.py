@@ -64,7 +64,14 @@ class ContextManager:
 
         # Use a more aggressive target (75% of max) to leave room for tool pairs
         # that might be added back by _ensure_tool_pairs()
-        aggressive_target = int(self.max_context_tokens * 0.75)
+        # For very small context windows (< 5000 tokens), be even more aggressive
+        if self.max_context_tokens < 5000:
+            # Small model like Haiku - use 50% target and keep fewer recent messages
+            aggressive_target = int(self.max_context_tokens * 0.50)
+            recent_message_count = 4  # Last 2 turns instead of 3
+        else:
+            aggressive_target = int(self.max_context_tokens * 0.75)
+            recent_message_count = 6  # Last 3 turns
 
         # Score each message by importance
         scored_messages = []
@@ -74,8 +81,8 @@ class ContextManager:
             )
             scored_messages.append((msg, importance, i))
 
-        # Always keep recent messages (last 3 turns = 6 messages)
-        recent_threshold = max(0, len(history) - 6)
+        # Always keep recent messages
+        recent_threshold = max(0, len(history) - recent_message_count)
         must_keep = [item for item in scored_messages if item[2] >= recent_threshold]
         can_prune = [item for item in scored_messages if item[2] < recent_threshold]
 

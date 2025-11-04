@@ -44,12 +44,54 @@ class Config:
         # Validate model selection
         self._validate_model()
 
+        # Set model-aware context limits
+        self._set_model_aware_limits()
+
         # Validate token limits
         self._validate_tokens()
 
         # Create directories
         self.flux_dir.mkdir(parents=True, exist_ok=True)
         self.chroma_dir.mkdir(parents=True, exist_ok=True)
+
+    def _set_model_aware_limits(self) -> None:
+        """Adjust context limits based on model capabilities.
+
+        Different models have vastly different context windows:
+        - Haiku: 8K total (need aggressive limits)
+        - Sonnet: 200K total (can be generous)
+        - Opus: 200K total (can be generous)
+        """
+        model_lower = self.model.lower()
+
+        if "haiku" in model_lower:
+            # Haiku: 8K context total
+            # Reserve: ~1K for system prompt, ~500 for tool schemas, ~2K for response
+            # Leaves ~4.5K for conversation history, use 3K to be safe
+            if self.max_history > 3000:
+                self.max_history = 3000
+            self.max_context_tokens = 3000
+
+        elif "sonnet" in model_lower:
+            # Sonnet: 200K context, can be much more generous
+            # Use defaults (8K history, 150K context) or user overrides
+            pass
+
+        elif "opus" in model_lower:
+            # Opus: 200K context, very generous
+            if self.max_history < 10000:
+                self.max_history = 10000
+            self.max_context_tokens = 180000
+
+        elif "gpt" in model_lower:
+            # OpenAI models - generally have good context
+            # gpt-4o: 128K, gpt-4-turbo: 128K, gpt-3.5-turbo: 16K
+            if "gpt-3.5" in model_lower:
+                # 3.5-turbo has smaller context
+                if self.max_history > 8000:
+                    self.max_history = 8000
+                self.max_context_tokens = 12000
+            # else: keep defaults for gpt-4 variants
 
     def _validate_provider(self) -> None:
         """Validate provider configuration."""

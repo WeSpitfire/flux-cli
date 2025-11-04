@@ -61,6 +61,8 @@ class NaturalLanguageParser:
             (r'\bstart\s+over\b', '/clear', None),
 
             # Codebase Intelligence
+(r'\\b(find|show|search|look\\s+for)\\s+(.+)', '/search', lambda m: m.group(2)),
+            (r'\\b(find|show|search|look\\s+for)\\s+(.+)', '/search', lambda m: m.group(2)),
             (r'\b(build|create|make|index)\s+(the\s+)?codebase\s+(graph|index)\b', '/index', None),
             (r'\b(find|show|search|look\s+for)\s+related\s+(files?\s+)?(.+)', '/related', lambda m: m.group(3)),
             (r'\b(show|view|display|see|check)\s+(the\s+)?architecture\b', '/architecture', None),

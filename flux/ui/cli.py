@@ -32,9 +32,10 @@ from flux.core.auto_fix_watcher import AutoFixWatcher, AutoFixEvent
 from flux.core.orchestrator import AIOrchestrator
 from flux.core.orchestrator_tools import register_all_tools
 from flux.core.auto_init import auto_initialize
+from flux.core.task_planner import TaskPlanner
 from flux.ui.nl_commands import get_parser
 from flux.llm.provider_factory import create_provider
-from flux.llm.prompts import SYSTEM_PROMPT
+from flux.llm.prompts import get_system_prompt
 from flux.tools.base import ToolRegistry
 from flux.tools.file_ops import ReadFilesTool, WriteFileTool, EditFileTool, MoveFileTool, DeleteFileTool
 from flux.tools.command import RunCommandTool
@@ -68,7 +69,9 @@ class CLI:
         self.undo = UndoManager(config.flux_dir, cwd)
 
         # Initialize workflow enforcer
-        self.workflow = WorkflowEnforcer(cwd)
+        # Enable strict mode for small context models (Haiku) to enforce read-before-write
+        strict_mode = "haiku" in config.model.lower() or "gpt-3.5" in config.model.lower()
+        self.workflow = WorkflowEnforcer(cwd, strict_mode=strict_mode)
 
         # Initialize approval manager
         self.approval = ApprovalManager(auto_approve=config.auto_approve)
@@ -133,13 +136,20 @@ class CLI:
         self.tools.register(GrepSearchTool(cwd, workflow_enforcer=self.workflow))
         self.tools.register(ListFilesTool(cwd))
         self.tools.register(FindFilesTool(cwd))
-        self.tools.register(ASTEditTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
+
+        # Don't register ast_edit for small context models (high failure rate)
+        if "haiku" not in config.model.lower() and "gpt-3.5" not in config.model.lower():
+            self.tools.register(ASTEditTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
+
         self.tools.register(ValidationTool(cwd))
 
         # Initialize AI Orchestrator
         self.orchestrator = AIOrchestrator(self.llm, cwd)
         # Register all tools with orchestrator
         register_all_tools(self.orchestrator, self)
+
+        # Initialize Smart Task Planner for autonomous decomposition
+        self.task_planner: Optional[TaskPlanner] = None  # Lazy init after graph built
 
         # Initialize Session Manager
         from flux.core.session_manager import SessionManager, EventType
@@ -196,6 +206,9 @@ class CLI:
 
             # Initialize suggestions engine with graph
             self.suggestions_engine = SuggestionsEngine(self.cwd, self.codebase_graph)
+
+            # Initialize task planner with graph
+            self.task_planner = TaskPlanner(self.llm, self.codebase_graph)
         except Exception as e:
             self.console.print(f"[yellow]Warning: Could not build code graph: {e}[/yellow]")
         finally:
@@ -280,6 +293,29 @@ class CLI:
                 # Show contextual suggestions before prompt (only in interactive mode)
                 if self._enable_paste_mode:
                     self._maybe_show_suggestions()
+
+                # Auto-clear context when it gets too full (invisible to user)
+                usage = self.llm.get_token_usage()
+                usage_percent = (usage['total_tokens'] / self.config.max_history) * 100 if self.config.max_history > 0 else 0
+
+                if usage_percent >= 90:
+                    # Auto-clear to prevent errors - but preserve important context
+                    old_token_count = usage['total_tokens']
+
+                    # Save current task before clearing
+                    current_task = self.memory.state.current_task
+
+                    # Clear conversation history
+                    self.llm.clear_history()
+
+                    # Restore task context in a fresh message if there was one
+                    if current_task:
+                        # Add it back as system context (not as a user message)
+                        self.memory.state.current_task = current_task
+
+                    self.console.print(
+                        f"[dim]✨ Context automatically refreshed to prevent overflow ({old_token_count:,} → 0 tokens)[/dim]"
+                    )
 
                 # BLOCK INPUT if LLM is processing
                 if self._llm_processing:
@@ -826,6 +862,11 @@ class CLI:
                     await self.build_codebase_graph()
                     continue
 
+                if query.lower().startswith('/analyze '):
+                    file_path = query[9:].strip()
+                    await self.analyze_file_structure(file_path)
+                    continue
+
                 if query.lower().startswith('/related '):
                     file_or_query = query[9:].strip()
                     await self.show_related_files(file_or_query)
@@ -1080,6 +1121,65 @@ class CLI:
         # Show token usage
         self._show_token_usage()
 
+    async def process_with_task_planner(self, query: str):
+        """Process query using smart task planner.
+
+        This uses the TaskPlanner to autonomously break down and execute complex tasks.
+
+        Args:
+            query: User's complex task/goal
+        """
+        # Set processing flag
+        self._llm_processing = True
+        self._processing_cancelled = False
+
+        try:
+            # Step 1: Analyze and create plan
+            plan = await self.task_planner.analyze_and_plan(query)
+
+            self.console.print(f"[bold]\u2705 Plan created:[/bold] {len(plan.steps)} steps")
+            self.console.print(f"[dim]Complexity: {plan.complexity}[/dim]\n")
+
+            # Step 2: Show plan to user
+            self.console.print("[bold cyan]Execution Plan:[/bold cyan]")
+            for step in plan.steps:
+                self.console.print(f"  {step.step_number}. {step.description}")
+                self.console.print(f"     [dim]{step.rationale}[/dim]")
+            self.console.print()
+
+            # Step 3: Execute plan step by step
+            for step in plan.steps:
+                if self._processing_cancelled:
+                    self.console.print("[yellow]Task cancelled by user[/yellow]")
+                    break
+
+                self.console.print(f"\n[bold cyan]Step {step.step_number}:[/bold cyan] {step.description}")
+
+                # Gather required context for this step
+                if step.requires_context:
+                    self.console.print(f"[dim]Reading context: {', '.join(step.requires_context)}[/dim]")
+                    # TODO: Actually read the context files
+
+                # Execute the step through normal conversation mode
+                # This allows LLM to use all available tools
+                await self.process_query_normal(step.description)
+
+                # Mark step as completed
+                step.completed = True
+
+                self.console.print(f"[green]✓ Step {step.step_number} completed[/green]")
+
+            if not self._processing_cancelled:
+                self.console.print("\n[bold green]🎉 Task completed successfully![/bold green]")
+
+        except Exception as e:
+            self.console.print(f"\n[red]Task planning error: {e}[/red]")
+            self.console.print("[yellow]Falling back to normal conversation mode...[/yellow]")
+            # Fall back to normal processing
+            await self.process_query_normal(query)
+        finally:
+            self._llm_processing = False
+
     async def process_with_orchestrator(self, query: str):
         """Process a query using the AI orchestrator.
 
@@ -1222,17 +1322,27 @@ class CLI:
             if re.search(pattern, query_lower):
                 return False
 
-        # Default: use orchestrator for longer queries (likely tasks)
-        # But not for very simple queries or very long queries (likely explanations)
-        word_count = len(query.split())
-        return word_count > 4 and word_count < 20
+        # Default: DO NOT use orchestrator
+        # Orchestrator should only trigger on explicit workflow patterns above
+        # All build/create/feature work should use conversation mode for iterative reasoning
+        return False
 
     async def process_query(self, query: str):
         """Process a user query."""
         # Log the raw input
         self.debug_logger.log_user_input(query, query)  # No processing currently
 
-        # Check if this should be orchestrated
+        # SMART TASK DECOMPOSITION:
+        # Check if task should be autonomously broken down
+        if self.task_planner:
+            should_decompose, reason = await self.task_planner.should_decompose(query)
+            if should_decompose:
+                self.console.print(f"[dim]💡 Complex task detected: {reason}[/dim]")
+                self.console.print("[dim]🧠 Analyzing and planning execution...[/dim]\n")
+                await self.process_with_task_planner(query)
+                return
+
+        # Check if this should be orchestrated (legacy workflows)
         use_orchestrator = self.should_use_orchestrator(query)
 
         if use_orchestrator:
@@ -1255,6 +1365,19 @@ class CLI:
 
         try:
             await self._process_query_normal_impl(query)
+        except Exception as e:
+            # Handle errors gracefully
+            error_str = str(e)
+            self.console.print(f"\n[red]Error in conversation: {e}[/red]")
+
+            # EMERGENCY: If rate limit error, aggressively clear history
+            if "rate_limit" in error_str.lower() or "429" in error_str or "too large" in error_str.lower():
+                self.console.print("[yellow]⚠️  Rate limit exceeded - clearing history to recover[/yellow]")
+                # Clear conversation history
+                self.llm.clear_history()
+                self.console.print("[dim]History cleared. You can continue with a fresh context.[/dim]")
+            else:
+                self.console.print("[dim]You can continue chatting - the error has been handled[/dim]")
         finally:
             # Always clear processing flag when done
             self._llm_processing = False
@@ -1443,19 +1566,34 @@ class CLI:
                         read_result = await self.tools.execute("read_files", paths=[file_path])
 
                         # Add helpful context to the error with stronger guidance
-                        result["auto_recovery"] = {
-                            "action": "file_read_completed",
-                            "message": (
+                        if retry_count >= 1:
+                            # 2nd failure - much stronger warning
+                            message = (
+                                "🛑 SECOND FAILURE DETECTED\n\n"
+                                "This approach is NOT working. Next attempt will be BLOCKED.\n\n"
+                                "You MUST change strategy now:\n"
+                                "1. Try a completely different tool\n"
+                                "2. Break the change into smaller steps\n"
+                                "3. Re-read the file to understand the current state\n\n"
+                                "DO NOT retry edit_file with the same approach."
+                            )
+                        else:
+                            # First failure - helpful guidance
+                            message = (
                                 "⚠️  SEARCH TEXT NOT FOUND - File has been auto-read for you.\n\n"
                                 "BEFORE RETRYING:\n"
                                 "1. Look at the EXACT file content in the Result panel below\n"
                                 "2. Copy the EXACT text you want to change (including ALL spaces/tabs)\n"
-                                "3. DO NOT guess or try to remember - use the exact content shown\n"
-                                "4. If this is your 2nd attempt, consider using a different tool or approach\n\n"
-                                f"Retry count: {retry_count + 1}/2 (next failure will be blocked)"
-                            ),
+                                "3. DO NOT guess or try to remember - use the exact content shown\n\n"
+                                f"Attempt {retry_count + 1}/2 - next failure will be blocked"
+                            )
+
+                        result["auto_recovery"] = {
+                            "action": "file_read_completed",
+                            "message": message,
                             "file_content_available": True,
-                            "retry_count": retry_count + 1
+                            "retry_count": retry_count + 1,
+                            "will_block_next": retry_count >= 1
                         }
 
                         # Show the file content to user
@@ -1464,11 +1602,9 @@ class CLI:
                             border_style="yellow"
                         ))
 
-                        # Add the file read result to conversation immediately
-                        # This allows the LLM to see the current file state
-                        import uuid
-                        read_tool_id = str(uuid.uuid4())
-                        self.llm.add_tool_result(read_tool_id, read_result)
+                        # Instead of adding an orphaned tool result, include the read content
+                        # in the main tool result so the LLM can see it in context
+                        result["auto_read_content"] = read_result
 
                     except Exception as read_error:
                         result["auto_recovery"] = {
@@ -1665,9 +1801,11 @@ class CLI:
             if retry_context:
                 system_prompt += retry_context
 
-            # Send empty message to get LLM's response to tool results
+            # Send continuation message to get LLM's response to tool results
+            # NOTE: Sending empty message can cause Claude to hang/timeout
+            # Instead, send a minimal continuation prompt
             async for event in self.llm.send_message(
-                message="",
+                message="continue",
                 system_prompt=system_prompt,
                 tools=self.tools.get_all_schemas()
             ):
@@ -1696,8 +1834,16 @@ class CLI:
             # Don't re-raise - return to main loop
         except Exception as e:
             # Log error but don't crash - allow user to continue
+            error_str = str(e)
             self.console.print(f"\n[red]Error in conversation: {e}[/red]")
-            self.console.print("[dim]You can continue chatting - the error has been handled[/dim]")
+
+            # AUTO-CLEAR: If context overflow, automatically clear and continue
+            if "rate_limit" in error_str.lower() or "429" in error_str or "too large" in error_str.lower() or "context" in error_str.lower():
+                # Clear conversation history automatically
+                self.llm.clear_history()
+                self.console.print("[dim]✨ Context automatically refreshed. Continuing...[/dim]")
+            else:
+                self.console.print("[dim]You can continue chatting - the error has been handled[/dim]")
 
     def _get_retry_context(self) -> str:
         """Get retry context warning for system prompt."""
@@ -1723,7 +1869,8 @@ class CLI:
 
     def _build_system_prompt(self, query: Optional[str] = None) -> str:
         """Build system prompt with project context and intelligence."""
-        prompt = SYSTEM_PROMPT
+        # Get model-appropriate prompt (concise for Haiku, full for Sonnet)
+        prompt = get_system_prompt(self.config.model)
 
         # Add minimal project context
         if self.project_info:
@@ -2274,6 +2421,43 @@ class CLI:
                 self.console.print(f"  [cyan]{file_path}[/cyan] [dim]({connections} connections)[/dim]")
 
         self.console.print()
+
+    async def analyze_file_structure(self, file_path: str):
+        """Analyze file structure for large files before editing.
+
+        Uses LargeFileHandler to provide intelligent guidance on how to
+        read and edit large files efficiently.
+        """
+        from flux.core.large_file_handler import get_handler
+        from pathlib import Path
+
+        # Resolve file path
+        full_path = self.cwd / file_path if not Path(file_path).is_absolute() else Path(file_path)
+
+        if not full_path.exists():
+            self.console.print(f"[red]File not found: {file_path}[/red]")
+            return
+
+        try:
+            # Get handler and analyze
+            handler = get_handler()
+            analysis = handler.analyze_file(full_path)
+            guide = handler.get_reading_guide(full_path)
+
+            # Display analysis
+            self.console.print(f"\n[bold]📊 File Structure Analysis[/bold]")
+            self.console.print("=" * 70)
+            self.console.print()
+
+            # Show the guide (it's already formatted nicely)
+            self.console.print(guide)
+
+            self.console.print("\n" + "=" * 70)
+            self.console.print("[dim]💡 Tip: Use the commands above to read specific sections efficiently[/dim]")
+            self.console.print()
+
+        except Exception as e:
+            self.console.print(f"[red]Error analyzing file: {e}[/red]")
 
     async def show_suggestions(self):
         """Show proactive AI suggestions."""

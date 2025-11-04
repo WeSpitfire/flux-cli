@@ -46,7 +46,7 @@ class SettingsManager {
     try {
       const crypto = require('crypto');
       const os = require('os');
-      
+
       // Use machine-specific identifiers for encryption
       const machineId = os.hostname() + os.platform() + os.arch();
       return crypto.createHash('sha256').update(machineId).digest('hex');
@@ -79,7 +79,7 @@ class SettingsManager {
    */
   getApiKey(provider, masked = true) {
     const key = this.store.get(`apiKeys.${provider}`) || '';
-    
+
     if (masked && key) {
       // Show first 8 and last 4 characters
       if (key.length > 12) {
@@ -87,7 +87,7 @@ class SettingsManager {
       }
       return key.substring(0, 8) + '...';
     }
-    
+
     return key;
   }
 
@@ -105,12 +105,12 @@ class SettingsManager {
     if (!['anthropic', 'openai'].includes(provider)) {
       throw new Error(`Invalid provider: ${provider}`);
     }
-    
+
     // Validate key format
     if (key && !this._validateKeyFormat(provider, key)) {
       throw new Error(`Invalid API key format for ${provider}`);
     }
-    
+
     // Test the key before saving
     if (key) {
       const testResult = await this._testKey(provider, key);
@@ -122,9 +122,9 @@ class SettingsManager {
         };
       }
     }
-    
+
     this.store.set(`apiKeys.${provider}`, key);
-    
+
     // Store validation status
     const validationStatus = this.store.get('keyValidation') || {};
     validationStatus[provider] = {
@@ -132,7 +132,7 @@ class SettingsManager {
       lastTested: new Date().toISOString()
     };
     this.store.set('keyValidation', validationStatus);
-    
+
     return { success: true, validated: true };
   }
 
@@ -141,7 +141,7 @@ class SettingsManager {
    */
   _validateKeyFormat(provider, key) {
     if (!key) return true; // Empty is valid (removal)
-    
+
     if (provider === 'anthropic') {
       // Anthropic keys start with "sk-ant-"
       return key.startsWith('sk-ant-') && key.length > 20;
@@ -149,7 +149,7 @@ class SettingsManager {
       // OpenAI keys start with "sk-"
       return key.startsWith('sk-') && key.length > 20;
     }
-    
+
     return false;
   }
 
@@ -160,7 +160,7 @@ class SettingsManager {
     if (!['anthropic', 'openai'].includes(provider)) {
       throw new Error(`Invalid provider: ${provider}`);
     }
-    
+
     this.store.set('provider', provider);
     return { success: true };
   }
@@ -178,28 +178,28 @@ class SettingsManager {
    */
   setLLMSettings(settings) {
     const validSettings = {};
-    
+
     if (settings.maxTokens !== undefined) {
       validSettings.maxTokens = Math.max(1024, Math.min(16000, settings.maxTokens));
     }
-    
+
     if (settings.temperature !== undefined) {
       validSettings.temperature = Math.max(0, Math.min(2, settings.temperature));
     }
-    
+
     if (settings.maxHistory !== undefined) {
       validSettings.maxHistory = Math.max(2000, Math.min(150000, settings.maxHistory));
     }
-    
+
     if (settings.requireApproval !== undefined) {
       validSettings.requireApproval = !!settings.requireApproval;
     }
-    
+
     // Update all valid settings
     Object.keys(validSettings).forEach(key => {
       this.store.set(key, validSettings[key]);
     });
-    
+
     return { success: true, updated: validSettings };
   }
 
@@ -228,18 +228,18 @@ class SettingsManager {
     const key = this.getFullApiKey(provider);
     return await this._testKey(provider, key);
   }
-  
+
   /**
    * Test a specific API key
    */
   async _testKey(provider, key) {
     if (!key) {
-      return { 
-        success: false, 
-        error: 'No API key configured' 
+      return {
+        success: false,
+        error: 'No API key configured'
       };
     }
-    
+
     try {
       if (provider === 'anthropic') {
         return await this._testAnthropic(key);
@@ -259,7 +259,7 @@ class SettingsManager {
    */
   async _testAnthropic(apiKey) {
     const https = require('https');
-    
+
     return new Promise((resolve) => {
       const options = {
         hostname: 'api.anthropic.com',
@@ -272,7 +272,7 @@ class SettingsManager {
           'anthropic-version': '2023-06-01'
         }
       };
-      
+
       const req = https.request(options, (res) => {
         let data = '';
         res.on('data', chunk => data += chunk);
@@ -294,18 +294,19 @@ class SettingsManager {
           }
         });
       });
-      
+
       req.on('error', (error) => {
         resolve({ success: false, error: error.message });
       });
-      
+
       // Send minimal test request
+      // Use Haiku for validation since it's universally accessible
       req.write(JSON.stringify({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-3-haiku-20240307',
         max_tokens: 1,
         messages: [{ role: 'user', content: 'Hi' }]
       }));
-      
+
       req.end();
     });
   }
@@ -315,7 +316,7 @@ class SettingsManager {
    */
   async _testOpenAI(apiKey) {
     const https = require('https');
-    
+
     return new Promise((resolve) => {
       const options = {
         hostname: 'api.openai.com',
@@ -326,7 +327,7 @@ class SettingsManager {
           'Authorization': `Bearer ${apiKey}`
         }
       };
-      
+
       const req = https.request(options, (res) => {
         let data = '';
         res.on('data', chunk => data += chunk);
@@ -348,11 +349,11 @@ class SettingsManager {
           }
         });
       });
-      
+
       req.on('error', (error) => {
         resolve({ success: false, error: error.message });
       });
-      
+
       req.end();
     });
   }
@@ -363,60 +364,60 @@ class SettingsManager {
   getAvailableModels(provider) {
     const models = {
       anthropic: [
-        { 
-          id: 'claude-3-5-sonnet-20241022', 
-          name: 'Claude 3.5 Sonnet (New)', 
+        {
+          id: 'claude-3-5-sonnet-20241022',
+          name: 'Claude 3.5 Sonnet (New)',
           recommended: true,
           context: 200000,
           cost: { input: 3, output: 15 }
         },
-        { 
-          id: 'claude-3-5-sonnet-20240620', 
-          name: 'Claude 3.5 Sonnet (Legacy)', 
+        {
+          id: 'claude-3-5-sonnet-20240620',
+          name: 'Claude 3.5 Sonnet (Legacy)',
           recommended: false,
           context: 200000,
           cost: { input: 3, output: 15 }
         },
-        { 
-          id: 'claude-3-opus-20240229', 
-          name: 'Claude 3 Opus', 
+        {
+          id: 'claude-3-opus-20240229',
+          name: 'Claude 3 Opus',
           recommended: false,
           context: 200000,
           cost: { input: 15, output: 75 }
         },
-        { 
-          id: 'claude-3-haiku-20240307', 
-          name: 'Claude 3 Haiku', 
+        {
+          id: 'claude-3-haiku-20240307',
+          name: 'Claude 3 Haiku',
           recommended: false,
           context: 200000,
           cost: { input: 0.25, output: 1.25 }
         }
       ],
       openai: [
-        { 
-          id: 'gpt-4o', 
-          name: 'GPT-4o', 
+        {
+          id: 'gpt-4o',
+          name: 'GPT-4o',
           recommended: true,
           context: 128000,
           cost: { input: 5, output: 15 }
         },
-        { 
-          id: 'gpt-4-turbo', 
-          name: 'GPT-4 Turbo', 
+        {
+          id: 'gpt-4-turbo',
+          name: 'GPT-4 Turbo',
           recommended: false,
           context: 128000,
           cost: { input: 10, output: 30 }
         },
-        { 
-          id: 'gpt-4', 
-          name: 'GPT-4', 
+        {
+          id: 'gpt-4',
+          name: 'GPT-4',
           recommended: false,
           context: 8192,
           cost: { input: 30, output: 60 }
         }
       ]
     };
-    
+
     return models[provider] || [];
   }
 
@@ -444,7 +445,7 @@ class SettingsManager {
   getSettingsPath() {
     return this.store.path;
   }
-  
+
   /**
    * Get the best working provider and key
    * Returns the configured provider if valid, otherwise tries fallback
@@ -452,18 +453,18 @@ class SettingsManager {
   async getBestWorkingProvider() {
     const settings = this.getSettings();
     const configuredProvider = settings.provider;
-    
+
     // Check if configured provider has a valid key
     const configuredKey = this.getFullApiKey(configuredProvider);
     if (configuredKey) {
       // Use cached validation if recent (within 1 hour)
       const validation = this.store.get('keyValidation') || {};
       const providerValidation = validation[configuredProvider];
-      
+
       if (providerValidation && providerValidation.valid) {
         const lastTested = new Date(providerValidation.lastTested);
         const hoursSinceTest = (Date.now() - lastTested.getTime()) / (1000 * 60 * 60);
-        
+
         if (hoursSinceTest < 1) {
           // Recently validated, trust it
           return {
@@ -475,7 +476,7 @@ class SettingsManager {
           };
         }
       }
-      
+
       // Test the configured key
       const testResult = await this._testKey(configuredProvider, configuredKey);
       if (testResult.success) {
@@ -485,7 +486,7 @@ class SettingsManager {
           lastTested: new Date().toISOString()
         };
         this.store.set('keyValidation', validation);
-        
+
         return {
           provider: configuredProvider,
           key: configuredKey,
@@ -494,20 +495,20 @@ class SettingsManager {
         };
       }
     }
-    
+
     // Configured provider failed, try fallback
     const fallbackProvider = configuredProvider === 'anthropic' ? 'openai' : 'anthropic';
     const fallbackKey = this.getFullApiKey(fallbackProvider);
-    
+
     if (fallbackKey) {
       const testResult = await this._testKey(fallbackProvider, fallbackKey);
       if (testResult.success) {
         console.warn(`[Settings] Configured provider ${configuredProvider} failed, using fallback ${fallbackProvider}`);
-        
+
         // Get default model for fallback provider
         const fallbackModels = this.getAvailableModels(fallbackProvider);
         const fallbackModel = fallbackModels[0]?.id;
-        
+
         return {
           provider: fallbackProvider,
           key: fallbackKey,
@@ -517,7 +518,7 @@ class SettingsManager {
         };
       }
     }
-    
+
     // No working keys
     return {
       provider: configuredProvider,
