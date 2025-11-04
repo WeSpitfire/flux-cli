@@ -3,7 +3,7 @@
 from typing import Optional
 import asyncio
 from rich.panel import Panel
-from flux.testing.test_runner import TestResult
+from flux.core.test_runner import TestResult
 
 
 class GitTestManager:

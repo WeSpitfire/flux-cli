@@ -3,222 +3,29 @@
 import sys
 from pathlib import Path
 from typing import Optional, List
-from rich.console import Console
-from rich.panel import Panel
 
 from flux.core.config import Config
 from flux.core.project import ProjectDetector, ProjectInfo
-from flux.core.memory import MemoryStore
-from flux.core.undo import UndoManager
-from flux.core.workflow import WorkflowEnforcer
-from flux.core.approval import ApprovalManager
-from flux.core.git_utils import GitIntegration
 from flux.core.codebase_intelligence import CodebaseGraph
 from flux.core.impact_analyzer import ImpactAnalyzer
 from flux.core.suggestions import SuggestionsEngine, Priority
 from flux.core.workspace import Workspace, TaskPriority, TaskStatus
-from flux.core.failure_tracker import FailureTracker
-from flux.core.background_processor import SmartBackgroundProcessor
-from flux.core.code_validator import CodeValidator
-from flux.core.debug_logger import DebugLogger
-from flux.core.state_tracker import ProjectStateTracker
-from flux.core.error_parser import ErrorParser
 from flux.core.test_runner import TestRunner, TestResult
-from flux.core.test_watcher import TestWatcher
-from flux.core.auto_fixer import AutoFixer
 from flux.core.auto_fix_watcher import AutoFixWatcher, AutoFixEvent
-from flux.core.orchestrator import AIOrchestrator
-from flux.core.orchestrator_tools import register_all_tools
 from flux.core.auto_init import auto_initialize
 from flux.core.task_planner import TaskPlanner
-from flux.ui.nl_commands import get_parser
-from flux.llm.provider_factory import create_provider
-from flux.tools.base import ToolRegistry
 from flux.tools.file_ops import ReadFilesTool, WriteFileTool, EditFileTool, MoveFileTool, DeleteFileTool
-from flux.tools.command import RunCommandTool
-from flux.tools.search import GrepSearchTool
 from flux.tools.filesystem import ListFilesTool, FindFilesTool
-from flux.tools.ast_edit import ASTEditTool
-from flux.tools.validation import ValidationTool
-from flux.tools.preview import PreviewEditTool
-from flux.tools.line_insert import InsertAtLineTool
-from flux.ui.display_manager import DisplayManager
-from flux.ui.command_router import CommandRouter
 
 
 class CLI:
     """Main CLI interface for Flux."""
 
     def __init__(self, config: Config, cwd: Path):
-        """Initialize CLI."""
-        self.config = config
-        self.cwd = cwd
-
-        # Initialize display manager
-        self.display = DisplayManager()
-
-        # Keep console for backward compatibility (will be removed in Phase 5)
-        import sys
-        self.console = Console(file=sys.stdout, force_terminal=False)
-        self.llm = create_provider(config)
-
-        # Initialize command router (will be set after all dependencies initialized)
-        self.commands: Optional[CommandRouter] = None
-
-        # Detect project
-        self.project_info = ProjectDetector(cwd).detect()
-
-        # Initialize memory store
-        self.memory = MemoryStore(config.flux_dir, cwd)
-
-        # Initialize undo manager
-        self.undo = UndoManager(config.flux_dir, cwd)
-
-        # Initialize workflow enforcer
-        # Enable strict mode for small context models (Haiku) to enforce read-before-write
-        strict_mode = "haiku" in config.model.lower() or "gpt-3.5" in config.model.lower()
-        self.workflow = WorkflowEnforcer(cwd, strict_mode=strict_mode)
-
-        # Initialize approval manager
-        self.approval = ApprovalManager(auto_approve=config.auto_approve)
-
-        # Initialize git integration
-        self.git = GitIntegration(cwd)
-
-        # Initialize codebase intelligence (lazy loading)
-        self.codebase_graph: Optional[CodebaseGraph] = None
-        self._graph_building = False
-        self._project_readme: Optional[str] = None
-
-        # Initialize impact analyzer (lazy loading)
-        self.impact_analyzer: Optional[ImpactAnalyzer] = None
-
-        # Initialize suggestions engine (lazy loading)
-        self.suggestions_engine: Optional[SuggestionsEngine] = None
-
-        # Initialize workspace manager
-        workspace_dir = config.flux_dir / "workspace"
-        self.workspace: Workspace = Workspace(workspace_dir, cwd)
-
-        # Initialize failure tracker
-        self.failure_tracker = FailureTracker()
-
-        # Initialize tool success tracker for metrics
-        from flux.core.tool_metrics import ToolSuccessTracker
-        metrics_path = config.flux_dir / "tool_metrics.json"
-        self.tool_metrics = ToolSuccessTracker(storage_path=metrics_path)
-
-        # Initialize smart background processor
-        self.bg_processor = SmartBackgroundProcessor(cwd)
-
-        # Initialize code validator for self-checking
-        self.code_validator = CodeValidator(cwd)
-
-        # Initialize debug logger (disabled by default)
-        self.debug_logger = DebugLogger(config.flux_dir, enabled=False)
-
-        # Initialize project state tracker for contextual awareness
-        self.state_tracker = ProjectStateTracker(cwd)
-
-        # Initialize natural language command parser
-        self.nl_parser = get_parser()
-
-        # Initialize error parser for smart error detection
-        self.error_parser = ErrorParser(cwd)
-
-        # Initialize test runner and watcher
-        self.test_runner = TestRunner(cwd)
-        self.test_watcher: Optional[TestWatcher] = None
-
-        # Initialize auto-fixer (enabled by default)
-        self.auto_fixer = AutoFixer(cwd, enabled=True)
-        self.auto_fix_watcher: Optional[AutoFixWatcher] = None
-
-        # Initialize tool registry
-        self.tools = ToolRegistry()
-        self.tools.register(ReadFilesTool(cwd, workflow_enforcer=self.workflow, background_processor=self.bg_processor))
-        self.tools.register(WriteFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval, code_validator=self.code_validator))
-        self.tools.register(EditFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval, code_validator=self.code_validator))
-        self.tools.register(MoveFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
-        self.tools.register(DeleteFileTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
-        self.tools.register(InsertAtLineTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
-        self.tools.register(PreviewEditTool(cwd))
-        self.tools.register(RunCommandTool(cwd))
-        self.tools.register(GrepSearchTool(cwd, workflow_enforcer=self.workflow))
-        self.tools.register(ListFilesTool(cwd))
-        self.tools.register(FindFilesTool(cwd))
-
-        # Don't register ast_edit for small context models (high failure rate)
-        if "haiku" not in config.model.lower() and "gpt-3.5" not in config.model.lower():
-            self.tools.register(ASTEditTool(cwd, undo_manager=self.undo, workflow_enforcer=self.workflow, approval_manager=self.approval))
-
-        self.tools.register(ValidationTool(cwd))
-
-        # Initialize AI Orchestrator
-        self.orchestrator = AIOrchestrator(self.llm, cwd)
-        # Register all tools with orchestrator
-        register_all_tools(self.orchestrator, self)
-
-        # Initialize Smart Task Planner for autonomous decomposition
-        self.task_planner: Optional[TaskPlanner] = None  # Lazy init after graph built
-
-        # Initialize Session Manager
-        from flux.core.session_manager import SessionManager, EventType
-        self.session_manager = SessionManager(cwd)
-        self.EventType = EventType  # Store for easy access
-
-        # Initialize Proactive Monitor
-        from flux.core.proactive_monitor import ProactiveMonitor, MonitorType
-        self.proactive_monitor = ProactiveMonitor(cwd, self.llm)
-        self.proactive_monitor.add_notification_callback(self._print_monitor_notification)
-        self.MonitorType = MonitorType  # Store for easy access
-
-        # Initialize Workflow Manager and Executor
-        from flux.core.workflows import WorkflowManager, WorkflowExecutor
-        self.workflow_manager = WorkflowManager(cwd)
-        self.workflow_executor = WorkflowExecutor(self.orchestrator)
-        self.workflow_executor.add_notification_callback(self._print_monitor_notification)
-
-        # Initialize Command Suggestion Engine
-        from flux.core.command_suggestions import CommandSuggestionEngine
-        self.command_suggester = CommandSuggestionEngine(
-            session_manager=self.session_manager,
-            state_tracker=self.state_tracker,
-            git=self.git,
-            proactive_monitor=self.proactive_monitor,
-            workflow_manager=self.workflow_manager
-        )
-
-        # Input blocking state for preventing mid-stream commands
-        self._llm_processing = False
-        self._processing_cancelled = False
-
-        # Initialize command router NOW (all dependencies ready)
-        self.commands = CommandRouter(self)
-
-        # Initialize conversation manager for query processing
-        from flux.core.conversation_manager import ConversationManager
-        self.conversation = ConversationManager(self)
-
-        # Initialize workflow coordinator for task planning and orchestration
-        from flux.core.workflow_coordinator import WorkflowCoordinator
-        self.workflow_coord = WorkflowCoordinator(self)
-
-        # Initialize Git/Test manager for Git and testing operations
-        from flux.core.git_test_manager import GitTestManager
-        self.git_test = GitTestManager(self)
-
-        # Initialize codebase analyzer for analysis and architecture features
-        from flux.core.codebase_analyzer import CodebaseAnalyzer
-        self.codebase_analyzer = CodebaseAnalyzer(self)
-
-        # Initialize session/task manager for workspace management
-        from flux.core.session_task_manager import SessionTaskManager
-        self.session_task_mgr = SessionTaskManager(self)
-
-        # Initialize auto-fix manager for code fixing
-        from flux.core.autofix_manager import AutoFixManager
-        self.autofix_mgr = AutoFixManager(self)
+        """Initialize CLI - delegates to CLIBuilder for dependency injection."""
+        from flux.ui.cli_builder import CLIBuilder
+        initialized = CLIBuilder.build(config, cwd)
+        self.__dict__.update(initialized.__dict__)
 
     async def build_codebase_graph(self) -> None:
         """Build the codebase semantic graph (runs in background)."""
