@@ -45,6 +45,7 @@ from flux.tools.validation import ValidationTool
 from flux.tools.preview import PreviewEditTool
 from flux.tools.line_insert import InsertAtLineTool
 from flux.ui.display_manager import DisplayManager
+from flux.ui.command_router import CommandRouter
 
 
 class CLI:
@@ -62,6 +63,9 @@ class CLI:
         import sys
         self.console = Console(file=sys.stdout, force_terminal=False)
         self.llm = create_provider(config)
+
+        # Initialize command router (will be set after all dependencies initialized)
+        self.commands: Optional[CommandRouter] = None
 
         # Detect project
         self.project_info = ProjectDetector(cwd).detect()
@@ -190,6 +194,9 @@ class CLI:
         # Input blocking state for preventing mid-stream commands
         self._llm_processing = False
         self._processing_cancelled = False
+
+        # Initialize command router NOW (all dependencies ready)
+        self.commands = CommandRouter(self)
 
     async def build_codebase_graph(self) -> None:
         """Build the codebase semantic graph (runs in background)."""
@@ -357,32 +364,13 @@ class CLI:
                     self.display.print_goodbye()
                     break
 
-                if query.lower() == '/clear':
-                    self.llm.clear_history()
-                    self.display.print_success("✓ Conversation history cleared")
-                    # Clear compose buffer too
-                    if getattr(self, "_compose_mode", False):
-                        self._compose_mode = False
-                        self._compose_buffer = []
-                        self.display.print_dim("Paste mode cancelled")
-                    continue
+                # Handle slash commands via CommandRouter
+                if query.startswith('/'):
+                    handled = await self.commands.handle(query)
+                    if handled:
+                        continue
 
-                if query.lower() == '/history':
-                    usage = self.llm.get_token_usage()
-                    history_len = len(self.llm.conversation_history)
-                    conversation_tokens = self.llm.estimate_conversation_tokens()
-                    max_tokens = self.config.max_history
-
-                    self.display.print_history_stats(
-                        history_len=history_len,
-                        conversation_tokens=conversation_tokens,
-                        max_tokens=max_tokens,
-                        cumulative_tokens=usage['total_tokens'],
-                        estimated_cost=usage['estimated_cost']
-                    )
-                    continue
-
-                if query.lower() == '/fix':
+                # Paste mode handling (only if enabled for interactive terminals)
                     # Check if there are any recent errors
                     recent_commands = [c for c in self.state_tracker.command_history[-5:] if c.exit_code != 0]
 
