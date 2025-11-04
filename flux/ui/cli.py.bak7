@@ -392,6 +392,340 @@ class CLI:
                     if handled:
                         continue
 
+                # Paste mode handling (only if enabled for interactive terminals)
+                    # Check if there are any recent errors
+                    recent_commands = [c for c in self.state_tracker.command_history[-5:] if c.exit_code != 0]
+
+                    if not recent_commands:
+                        self.console.print("[yellow]No recent failed commands to fix.[/yellow]")
+                        continue
+
+                    # Get the most recent failed command
+                    last_failed = recent_commands[-1]
+
+                    # Parse errors
+                    parsed_errors = self.error_parser.parse_output(last_failed.output or "", last_failed.command)
+
+                    if not parsed_errors:
+                        self.console.print(f"[yellow]No parseable errors found in: {last_failed.command}[/yellow]")
+                        continue
+
+                    # Show errors
+                    self.console.print(f"\n[bold]🛠️  Analyzing Errors from:[/bold] [cyan]{last_failed.command}[/cyan]\n")
+
+                    for i, error in enumerate(parsed_errors[:3], 1):
+                        self.console.print(f"{i}. {self.error_parser.format_error(error)}\n")
+
+                    # Get fix context for first error
+                    first_error = parsed_errors[0]
+                    fix_context = self.error_parser.get_fix_context(first_error)
+
+                    if fix_context:
+                        # Automatically ask Flux to fix it
+                        fix_query = (
+                            f"Fix this error:\n\n"
+                            f"Error: {first_error.error_type}: {first_error.message}\n"
+                            f"File: {fix_context['file_path']}:{fix_context['line_number']}\n\n"
+                            f"Code context (lines {fix_context['start_line']}-{fix_context['end_line']}):\n"
+                            f"```\n{fix_context['code_context']}```\n\n"
+                            f"Please fix this error."
+                        )
+
+                        self.console.print("[dim]→ Asking Flux to fix the error...[/dim]\n")
+
+                        # Process as a query
+                        query = fix_query
+                        # Let it continue to the main processing logic
+                    else:
+                        self.console.print(f"[yellow]Could not get fix context for {first_error.file_path}[/yellow]")
+                        continue
+
+                if query.lower() == '/state':
+                    summary = self.state_tracker.get_context_summary(max_age_minutes=30)
+                    suggestions = self.state_tracker.get_proactive_suggestions()
+
+                    self.console.print("\n[bold]🧠 Project State (Last 30 minutes):[/bold]\n")
+
+                    # Files
+                    if summary['files']['recently_modified']:
+                        self.console.print(f"[bold cyan]Recent Files:[/bold cyan]")
+                        for f in summary['files']['recently_modified'][:5]:
+                            self.console.print(f"  • {f}")
+                        self.console.print()
+
+                    if summary['files']['most_active']:
+                        self.console.print(f"[bold cyan]Hot Files:[/bold cyan]")
+                        for f, count in summary['files']['most_active']:
+                            self.console.print(f"  • {f} ({count} modifications)")
+                        self.console.print()
+
+                    # Git
+                    if summary['git']['is_repo']:
+                        self.console.print(f"[bold cyan]Git:[/bold cyan]")
+                        self.console.print(f"  Branch: {summary['git']['branch']}")
+                        if summary['git']['has_changes']:
+                            self.console.print(f"  Changes: {summary['git']['total_changes']} files (" +
+                                             f"{summary['git']['staged_files']} staged, " +
+                                             f"{summary['git']['modified_files']} modified, " +
+                                             f"{summary['git']['untracked_files']} untracked)")
+                        else:
+                            self.console.print("  Clean working directory")
+                        self.console.print()
+
+                    # Tests
+                    if summary['tests']['recent_count'] > 0:
+                        self.console.print(f"[bold cyan]Tests:[/bold cyan]")
+                        if summary['tests']['last_passed'] is not None:
+                            status = "[green]✓ Passed[/green]" if summary['tests']['last_passed'] else "[red]✗ Failed[/red]"
+                            self.console.print(f"  Last run: {status}")
+                        if summary['tests']['recent_failures']:
+                            self.console.print(f"  Failures:")
+                            for failure in summary['tests']['recent_failures'][:3]:
+                                self.console.print(f"    • {failure}")
+                        self.console.print()
+
+                    # Commands
+                    if summary['commands']['recent_count'] > 0:
+                        self.console.print(f"[bold cyan]Commands:[/bold cyan]")
+                        self.console.print(f"  Recent: {summary['commands']['recent_count']}")
+                        if summary['commands']['last_command']:
+                            self.console.print(f"  Last: {summary['commands']['last_command']}")
+                        if summary['commands']['failed_commands']:
+                            self.console.print(f"  Failed: {len(summary['commands']['failed_commands'])}")
+                        self.console.print()
+
+                    # Suggestions
+                    if suggestions:
+                        self.console.print(f"[bold yellow]💡 Suggestions:[/bold yellow]")
+                        for suggestion in suggestions:
+                            self.console.print(f"  {suggestion}")
+                        self.console.print()
+                    else:
+                        self.console.print("[dim]No suggestions - you're doing great! 🚀[/dim]\n")
+
+                    continue
+
+                # -- Session commands --
+                if query.lower() == '/session':
+                    # Show current session summary
+                    current = self.session_manager.get_current_session()
+                    if current:
+                        summary = self.session_manager.get_session_summary(current)
+                        self.console.print("\n" + summary)
+                    else:
+                        self.console.print("[yellow]No active session[/yellow]")
+                    continue
+
+                # -- Workflow commands --
+                if query.lower() == '/workflows':
+                    # List available workflows
+                    workflows = self.workflow_manager.list_workflows()
+                    if not workflows:
+                        self.console.print("[yellow]No workflows defined. Create `.flux/workflows.yaml` to add workflows.[/yellow]")
+                    else:
+                        self.console.print("\n[bold]Available Workflows:[/bold]")
+                        for wf in workflows:
+                            workflow = self.workflow_manager.get_workflow(wf)
+                            desc = workflow.get('description', 'No description')
+                            self.console.print(f"  [cyan]{wf}[/cyan] - {desc}")
+                        self.console.print("\nUse `/workflow <name>` to execute a workflow.")
+                    continue
+
+                if query.lower().startswith('/workflow '):
+                    # Execute a workflow
+                    workflow_name = query[10:].strip()
+                    if not workflow_name:
+                        self.console.print("[red]Usage: /workflow <name>[/red]")
+                        continue
+
+                    try:
+                        workflow = self.workflow_manager.get_workflow(workflow_name)
+                        self.console.print(f"\n[bold]Executing workflow: {workflow_name}[/bold]\n")
+
+                        # Execute workflow asynchronously
+                        import asyncio
+                        result = asyncio.run(self.workflow_executor.execute(workflow))
+
+                        if result.get('success'):
+                            self.console.print(f"\n[green]✓ Workflow '{workflow_name}' completed successfully[/green]")
+                        else:
+                            error = result.get('error', 'Unknown error')
+                            self.console.print(f"\n[red]✗ Workflow '{workflow_name}' failed: {error}[/red]")
+
+                        # Record workflow execution
+                        self.session_manager.record_event(
+                            self.EventType.WORKFLOW_EXECUTED,
+                            {'workflow': workflow_name, 'success': result.get('success', False)}
+                        )
+                    except Exception as e:
+                        self.console.print(f"[red]Error executing workflow: {e}[/red]")
+                    continue
+
+                # -- Monitoring commands --
+                if query.lower().startswith('/watch'):
+                    parts = query.split()
+                    if len(parts) < 2:
+                        self.console.print("[yellow]Usage: /watch <type> or /watch stop[/yellow]")
+                        self.console.print("Types: tests, lint, build, files, git, all")
+                        continue
+
+                    action = parts[1].lower()
+
+                    if action == 'stop':
+                        self.proactive_monitor.stop()
+                        self.console.print("[yellow]All monitors stopped[/yellow]")
+                    elif action == 'all':
+                        import asyncio
+                        for monitor_type in self.MonitorType:
+                            self.proactive_monitor.enable_monitor(monitor_type)
+                        asyncio.create_task(self.proactive_monitor.start())
+                        self.console.print("[green]All monitors started[/green]")
+                    else:
+                        try:
+                            # Map string to MonitorType
+                            type_map = {
+                                'tests': self.MonitorType.TESTS,
+                                'lint': self.MonitorType.LINT,
+                                'build': self.MonitorType.BUILD,
+                                'files': self.MonitorType.FILE_CHANGES,
+                                'git': self.MonitorType.GIT_CHANGES
+                            }
+                            monitor_type = type_map.get(action)
+                            if not monitor_type:
+                                self.console.print(f"[red]Unknown monitor type: {action}[/red]")
+                                continue
+
+                            import asyncio
+                            self.proactive_monitor.enable_monitor(monitor_type)
+                            asyncio.create_task(self.proactive_monitor.start())
+                            self.console.print(f"[green]Started {action} monitor[/green]")
+                        except Exception as e:
+                            self.console.print(f"[red]Error starting monitor: {e}[/red]")
+                    continue
+
+                if query.lower() == '/status':
+                    # Show monitor status
+                    status = self.proactive_monitor.get_status()
+                    self.console.print("\n[bold]Monitor Status:[/bold]")
+                    self.console.print(f"  Running: {'Yes' if status['running'] else 'No'}")
+                    self.console.print(f"  Active monitors: {len(status['active_monitors'])}")
+                    if status['active_monitors']:
+                        for monitor in status['active_monitors']:
+                            self.console.print(f"    - {monitor}")
+                    if status['last_events']:
+                        self.console.print("\n[bold]Recent Events:[/bold]")
+                        for event in status['last_events'][-5:]:  # Show last 5
+                            self.console.print(f"  [{event['timestamp']}] {event['type']}: {event.get('message', 'N/A')}")
+                    continue
+
+                # -- Auto-approve toggle --
+                if query.lower() == '/auto-approve':
+                    # Toggle auto-approve mode
+                    self.approval.auto_approve = not self.approval.auto_approve
+                    status = "enabled" if self.approval.auto_approve else "disabled"
+                    color = "green" if self.approval.auto_approve else "yellow"
+                    self.console.print(f"[{color}]Auto-approve {status}[/{color}]")
+                    if self.approval.auto_approve:
+                        self.console.print("[dim]All file changes will be applied automatically without prompts[/dim]")
+                    else:
+                        self.console.print("[dim]You'll be prompted to approve each file change[/dim]")
+                    continue
+
+                # -- Smart suggestions command --
+                if query.lower() == '/suggest':
+                    # Show contextual command suggestions
+                    suggestions = self.command_suggester.get_suggestions(max_suggestions=5)
+                    if suggestions:
+                        self.console.print("\n[bold]💡 Suggested Commands:[/bold]")
+                        for i, sug in enumerate(suggestions, 1):
+                            self.console.print(f"  {i}. {sug.format()}")
+                        self.console.print()
+                    else:
+                        self.console.print("\n[dim]No suggestions at the moment - you're doing great! 🚀[/dim]\n")
+                    continue
+
+                if query.lower() == '/help':
+                    help_text = (
+                        "[bold]Available Commands:[/bold]\n"
+                        "\n[bold magenta]✨ Natural Language:[/bold magenta]\n"
+                        "  Just ask naturally! Examples:\n"
+                        "  [dim]• 'show me what changed' → /diff[/dim]\n"
+                        "  [dim]• 'run the tests' → /test[/dim]\n"
+                        "  [dim]• 'undo that' → /undo[/dim]\n"
+                        "  [dim]• 'what's happening' → /state[/dim]\n"
+                        "\n[bold cyan]General:[/bold cyan]\n"
+                        "  [green]/help[/green] - Show this help message\n"
+                        "  [green]/model[/green] - Show current provider and model\n"
+                        "  [green]/history[/green] - Show conversation history summary\n"
+                        "  [green]/clear[/green] - Clear conversation history\n"
+                        "\n[bold cyan]Multi-line & Paste Mode:[/bold cyan]\n"
+                        "  [green]/paste[/green] or [green]```[/green] - Start paste mode\n"
+                        "  [green]/end[/green] or [green]/send[/green] or [green]```[/green] - Finish and send\n"
+                        "  [green]/discard[/green] - Cancel paste mode and discard\n"
+                        "  Tip: Paste large tasks as a single block; Flux auto-detects lists and will enter paste mode.\n"
+                        "\n[bold cyan]Session & Context:[/bold cyan]\n"
+                        "  [green]/session[/green] - Show current session summary\n"
+                        "  [green]/task <description>[/green] - Set current task\n"
+                        "  [green]/memory[/green] - Show project memory\n"
+                        "  [green]/checkpoint <msg>[/green] - Save a checkpoint\n"
+                        "  [green]/project[/green] - Show files created in this session\n"
+                        "\n[bold cyan]Workflows & Automation:[/bold cyan]\n"
+                        "  [green]/workflows[/green] - List available workflows\n"
+                        "  [green]/workflow <name>[/green] - Execute a workflow\n"
+                        "  [green]/watch <type>[/green] - Start monitoring (tests/lint/build/files/git/all)\n"
+                        "  [green]/watch stop[/green] - Stop all monitors\n"
+                        "  [green]/status[/green] - Show monitor status\n"
+                        "  [green]/suggest[/green] - Get smart command suggestions based on context\n"
+                        "\n[bold cyan]Undo Commands:[/bold cyan]\n"
+                        "  [green]/undo[/green] - Undo last file operation\n"
+                        "  [green]/undo-history[/green] - Show undo history\n"
+                        "\n[bold cyan]Git & Testing:[/bold cyan]\n"
+                        "  [green]/diff[/green] - Show git diff of changes\n"
+                        "  [green]/commit[/green] - Smart commit with generated message\n"
+                        "  [green]/test[/green] - Run project tests\n"
+                        "  [green]/watch[/green] - Start test watch mode (auto-run on file changes)\n"
+                        "  [green]/watch-stop[/green] - Stop test watch mode\n"
+                        "\n[bold cyan]Workflow & Approval:[/bold cyan]\n"
+                        "  [green]/workflow[/green] - Show workflow status\n"
+                        "  [green]/approval[/green] - Show approval statistics\n"
+                        "  [green]/auto-approve[/green] - Toggle auto-approve mode (skip file change prompts)\n"
+                        "\n[bold cyan]Codebase Intelligence:[/bold cyan]\n"
+                        "  [green]/index[/green] - Build semantic codebase graph\n"
+                        "  [green]/related <file|query>[/green] - Find related files\n"
+                        "  [green]/architecture[/green] - Show detected architecture\n"
+                        "  [green]/preview <file>[/green] - Preview impact of modifying a file\n"
+                        "  [green]/suggest[/green] - Get proactive AI suggestions\n"
+                        "\n[bold cyan]Workspace Intelligence:[/bold cyan]\n"
+                        "  [green]/session save <n>[/green] - Save current work session\n"
+                        "  [green]/session restore <id>[/green] - Restore a saved session\n"
+                        "  [green]/sessions[/green] - List all sessions\n"
+                        "  [green]/newtask <title>[/green] - Create a new task\n"
+                        "  [green]/tasks[/green] - List all tasks\n"
+                        "  [green]/summary[/green] - Show work summary for today\n"
+                        "  [green]/stats[/green] - Show project statistics\n"
+                        "  [green]/performance[/green] (or [green]/perf[/green]) - Show background processing stats\n"
+                        "\n[bold cyan]Code Quality:[/bold cyan]\n"
+                        "  [green]/validate[/green] - Validate modified files for errors\n"
+                        "  [green]/fix[/green] - Auto-detect and fix recent errors\n"
+                        "\n[bold cyan]Debug & Diagnostics:[/bold cyan]\n"
+                        "  [green]/debug-on[/green] - Enable debug logging\n"
+                        "  [green]/debug-off[/green] - Disable debug logging\n"
+                        "  [green]/debug[/green] - Show debug session summary\n"
+                        "  [green]/debug-analyze <issue>[/green] - Analyze logs for an issue\n"
+                        "  [green]/inspect[/green] - Inspect current conversation state\n"
+                    )
+                    # Use plain text title to avoid Unicode issues in piped output
+                    self.console.print(Panel(help_text, title="Help", border_style="blue"))
+                    continue
+
+
+                if query.lower() == '/model':
+                    self.console.print(
+                        f"\n[bold]🤖 Current Model:[/bold]\n"
+                        f"  Provider: [cyan]{self.config.provider}[/cyan]\n"
+                        f"  Model: [cyan]{self.config.model}[/cyan]\n"
+                    )
+                    continue
 
                 # Paste mode handling (only if enabled for interactive terminals)
                 import time
