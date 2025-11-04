@@ -1034,6 +1034,13 @@ class CLI:
 
             # Display plan
             plan = result['plan']
+
+            # Check if plan has parse error (fallback scenario)
+            if len(plan['steps']) == 1 and plan['steps'][0].get('tool_name') == '_parse_error':
+                self.console.print("[yellow]Could not create workflow plan, using normal conversation mode[/yellow]")
+                await self.process_query_normal(query)
+                return
+
             self.console.print(f"\n[bold]Goal:[/bold] {plan['goal']}")
             self.console.print(f"[dim]Steps: {len(plan['steps'])}[/dim]\n")
 
@@ -1108,10 +1115,12 @@ class CLI:
             if re.search(pattern, query_lower):
                 return True
 
-        # Avoid orchestration for questions
+        # Avoid orchestration for questions and reviews
         question_patterns = [
             r'^(what|why|how|when|where|who)',
-            r'(explain|describe|tell me|show me)'
+            r'(explain|describe|tell me|show me)',
+            r'^(review|look|check|examine|see)',
+            r'(please|just|simply)\s+(review|look|check)'
         ]
 
         for pattern in question_patterns:
@@ -1119,7 +1128,8 @@ class CLI:
                 return False
 
         # Default: use orchestrator for longer queries (likely tasks)
-        return len(query.split()) > 4
+        # But not for very simple queries
+        return len(query.split()) > 4 and len(query.split()) < 20
 
     async def process_query(self, query: str):
         """Process a user query."""

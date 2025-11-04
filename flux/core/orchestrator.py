@@ -264,16 +264,18 @@ Now create a plan for the user's goal."""
                 requires_approval=plan_data.get("requires_approval", False)
             )
         except (json.JSONDecodeError, KeyError) as e:
-            # Fallback: create simple plan with LLM conversation
+            # Fallback: return error plan indicating parsing failed
+            # CLI should handle this by falling back to normal conversation mode
             return WorkflowPlan(
                 goal=goal,
                 steps=[
                     ExecutionStep(
-                        tool_name="llm_conversation",
-                        description="Handle goal through conversation",
-                        params={"goal": goal}
+                        tool_name="_parse_error",
+                        description="Failed to parse orchestration plan",
+                        params={"error": str(e), "plan_text": plan_text[:200]}
                     )
-                ]
+                ],
+                requires_approval=False
             )
 
     async def execute_plan(self, plan: WorkflowPlan) -> List[Dict[str, Any]]:

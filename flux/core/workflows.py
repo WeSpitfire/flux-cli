@@ -532,12 +532,35 @@ class WorkflowManager:
         """Parse workflow from dict."""
         steps = []
         for step_data in data.get('steps', []):
+            # Handle both old format (with 'name') and new YAML format
+            # In YAML format, steps might have 'tool' and 'description' instead
+            step_name = step_data.get('name') or step_data.get('description', 'unnamed_step')
+
+            # Determine step type from the data
+            if 'tool' in step_data:
+                step_type = StepType.TOOL
+                tool_name = step_data['tool']
+                command = None
+                # 'input' in YAML maps to 'params'
+                params = step_data.get('input', step_data.get('params', {}))
+            elif 'command' in step_data:
+                step_type = StepType.COMMAND
+                tool_name = None
+                command = step_data['command']
+                params = step_data.get('params', {})
+            else:
+                # Fallback to old format
+                step_type = StepType(step_data.get('step_type', 'tool'))
+                tool_name = step_data.get('tool_name')
+                command = step_data.get('command')
+                params = step_data.get('params', {})
+
             steps.append(WorkflowStep(
-                name=step_data['name'],
-                step_type=StepType(step_data.get('step_type', 'tool')),
-                tool_name=step_data.get('tool_name'),
-                command=step_data.get('command'),
-                params=step_data.get('params', {}),
+                name=step_name,
+                step_type=step_type,
+                tool_name=tool_name,
+                command=command,
+                params=params,
                 condition=step_data.get('condition'),
                 continue_on_error=step_data.get('continue_on_error', False)
             ))
