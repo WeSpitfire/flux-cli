@@ -65,7 +65,38 @@ class TestResult:
         return (self.passed / self.total_tests) * 100
 
 
-class TestRunner:
+class AutoTester(TestRunner):
+    """Automatically runs tests to verify fixes."""
+
+    def __init__(self, cwd: Path):
+        super().__init__(cwd)
+
+    def run_auto_tests(self, fix_applied_callback: Optional[callable] = None) -> TestResult:
+        """Run tests automatically after a fix is applied.
+
+        Args:
+            fix_applied_callback: Optional callback to execute after a fix is applied
+
+        Returns:
+            TestResult with parsed information
+        """
+        if fix_applied_callback:
+            fix_applied_callback()
+
+        # Run tests
+        result = self.run_tests()
+
+        # Log the result
+        if result.success:
+            print("All tests passed successfully.")
+        else:
+            print("Some tests failed. Check the details:")
+            for failure in result.failures:
+                print(f"Test: {failure.test_name}, Error: {failure.error_message}")
+
+        return result
+
+
     """Smart test runner with framework detection and result parsing."""
 
     def __init__(self, cwd: Path):

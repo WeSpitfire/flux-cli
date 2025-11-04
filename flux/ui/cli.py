@@ -1646,9 +1646,13 @@ class CLI:
     async def continue_after_tools(self):
         """Continue conversation after tool execution."""
         try:
+            # ALWAYS show that we're processing - this is critical for desktop/piped mode
+            # where users can't see what's happening
+            self.console.print("\n[dim]⏳ Processing tool results...[/dim]")
+
             # Show thinking indicator (only in real terminal, not in desktop/piped mode)
             if sys.stdin.isatty():
-                self.console.print("\n[bold cyan]Flux[/bold cyan]:", end=" ")
+                self.console.print("[bold cyan]Flux[/bold cyan]:", end=" ")
 
             response_text = ""
             tool_uses = []
