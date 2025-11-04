@@ -557,11 +557,11 @@ class CLI:
                 # -- Auto-approve toggle --
                 if query.lower() == '/auto-approve':
                     # Toggle auto-approve mode
-                    self.approval_manager.auto_approve = not self.approval_manager.auto_approve
-                    status = "enabled" if self.approval_manager.auto_approve else "disabled"
-                    color = "green" if self.approval_manager.auto_approve else "yellow"
+                    self.approval.auto_approve = not self.approval.auto_approve
+                    status = "enabled" if self.approval.auto_approve else "disabled"
+                    color = "green" if self.approval.auto_approve else "yellow"
                     self.console.print(f"[{color}]Auto-approve {status}[/{color}]")
-                    if self.approval_manager.auto_approve:
+                    if self.approval.auto_approve:
                         self.console.print("[dim]All file changes will be applied automatically without prompts[/dim]")
                     else:
                         self.console.print("[dim]You'll be prompted to approve each file change[/dim]")
