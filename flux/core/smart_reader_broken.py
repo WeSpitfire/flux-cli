@@ -1,4 +1,3 @@
-import tree_sitter
 from tree_sitter import Language, Parser
 
 class SmartReader:
@@ -40,7 +39,6 @@ class SmartReader:
         pass
 
 
-import tree_sitter
 from tree_sitter import Language, Parser
 
 class SmartReader:
@@ -83,7 +81,6 @@ class SmartReader:
         pass
 
 
-import tree_sitter
 from tree_sitter import Language, Parser
 
 class SmartReader:
@@ -139,7 +136,6 @@ class SmartReader:
         pass
 
 
-import tree_sitter
 from tree_sitter import Language, Parser
 
 class SmartReader:
@@ -199,7 +195,6 @@ class SmartReader:
         pass
 
 
-import tree_sitter
 from tree_sitter import Language, Parser
 
 class SmartReader:

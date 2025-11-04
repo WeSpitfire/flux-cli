@@ -8,21 +8,21 @@ from flux.tools.base import Tool, ToolParameter
 
 class ListFilesTool(Tool):
     """Tool for listing files and directories."""
-    
+
     def __init__(self, cwd: Path):
         """Initialize with current working directory."""
         self.cwd = cwd
-    
+
     @property
     def name(self) -> str:
         return "list_files"
-    
+
     @property
     def description(self) -> str:
         return """List files and directories in a given path.
 Returns file names, types (file/directory), and sizes.
 Useful for exploring project structure."""
-    
+
     @property
     def parameters(self) -> List[ToolParameter]:
         return [
@@ -39,41 +39,41 @@ Useful for exploring project structure."""
                 required=False
             )
         ]
-    
+
     async def execute(self, path: str = ".", show_hidden: bool = False) -> Dict[str, Any]:
         """List files and directories."""
         try:
             target_path = Path(path)
             if not target_path.is_absolute():
                 target_path = self.cwd / target_path
-            
+
             if not target_path.exists():
                 return {"error": "Path does not exist"}
-            
+
             if not target_path.is_dir():
                 return {"error": "Path is not a directory"}
-            
+
             items = []
             for item in sorted(target_path.iterdir()):
                 # Skip hidden files unless requested
                 if not show_hidden and item.name.startswith('.'):
                     continue
-                
+
                 item_info = {
                     "name": item.name,
                     "type": "directory" if item.is_dir() else "file",
                     "path": str(item.relative_to(self.cwd)) if item.is_relative_to(self.cwd) else str(item)
                 }
-                
+
                 # Add size for files
                 if item.is_file():
                     try:
                         item_info["size"] = item.stat().st_size
                     except:
                         item_info["size"] = None
-                
+
                 items.append(item_info)
-            
+
             return {
                 "path": str(target_path),
                 "items": items,
@@ -85,21 +85,21 @@ Useful for exploring project structure."""
 
 class FindFilesTool(Tool):
     """Tool for finding files by pattern."""
-    
+
     def __init__(self, cwd: Path):
         """Initialize with current working directory."""
         self.cwd = cwd
-    
+
     @property
     def name(self) -> str:
         return "find_files"
-    
+
     @property
     def description(self) -> str:
         return """Find files matching a pattern (e.g., '*.py', 'test_*.js').
 Recursively searches directories while respecting .gitignore patterns.
 Fast for finding specific file types or names."""
-    
+
     @property
     def parameters(self) -> List[ToolParameter]:
         return [
@@ -122,7 +122,7 @@ Fast for finding specific file types or names."""
                 required=False
             )
         ]
-    
+
     async def execute(
         self,
         pattern: str,
@@ -134,29 +134,29 @@ Fast for finding specific file types or names."""
             search_path = Path(path)
             if not search_path.is_absolute():
                 search_path = self.cwd / search_path
-            
+
             if not search_path.exists():
                 return {"error": "Path does not exist"}
-            
+
             # Common directories to skip
             skip_dirs = {
                 'node_modules', 'venv', '.venv', 'env', '.git',
                 'dist', 'build', '__pycache__', '.next', '.nuxt'
             }
-            
+
             matches = []
             count = 0
-            
+
             for root, dirs, files in os.walk(search_path):
                 # Remove skip directories from search
                 dirs[:] = [d for d in dirs if d not in skip_dirs]
-                
+
                 root_path = Path(root)
-                
+
                 # Check files against pattern
                 for file in files:
                     file_path = root_path / file
-                    
+
                     # Simple pattern matching
                     if self._matches_pattern(file, pattern):
                         rel_path = file_path.relative_to(self.cwd) if file_path.is_relative_to(self.cwd) else file_path
@@ -166,13 +166,13 @@ Fast for finding specific file types or names."""
                             "directory": str(root_path.relative_to(self.cwd)) if root_path.is_relative_to(self.cwd) else str(root_path)
                         })
                         count += 1
-                        
+
                         if count >= max_results:
                             break
-                
+
                 if count >= max_results:
                     break
-            
+
             return {
                 "pattern": pattern,
                 "matches": matches,
@@ -181,7 +181,7 @@ Fast for finding specific file types or names."""
             }
         except Exception as e:
             return {"error": str(e)}
-    
+
     def _matches_pattern(self, filename: str, pattern: str) -> bool:
         """Simple pattern matching."""
         import fnmatch

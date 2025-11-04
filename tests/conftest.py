@@ -27,11 +27,11 @@ def hello(name):
 
 class Calculator:
     """A simple calculator."""
-    
+
     def add(self, a, b):
         """Add two numbers."""
         return a + b
-    
+
     def subtract(self, a, b):
         """Subtract two numbers."""
         return a - b
@@ -54,7 +54,7 @@ class Calculator {
   add(a, b) {
     return a + b;
   }
-  
+
   subtract(a, b) {
     return a - b;
   }

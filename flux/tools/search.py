@@ -9,22 +9,22 @@ from flux.tools.base import Tool, ToolParameter
 
 class GrepSearchTool(Tool):
     """Tool for searching code using grep/ripgrep."""
-    
+
     def __init__(self, cwd: Path, workflow_enforcer=None):
         """Initialize with current working directory."""
         self.cwd = cwd
         self.workflow = workflow_enforcer
-    
+
     @property
     def name(self) -> str:
         return "grep_search"
-    
+
     @property
     def description(self) -> str:
         return """Search for patterns in files using grep.
 Useful for finding specific function names, class names, strings, or patterns in code.
 Returns matching lines with file paths and line numbers."""
-    
+
     @property
     def parameters(self) -> List[ToolParameter]:
         return [
@@ -47,7 +47,7 @@ Returns matching lines with file paths and line numbers."""
                 required=False
             )
         ]
-    
+
     async def execute(
         self,
         pattern: str,
@@ -61,7 +61,7 @@ Returns matching lines with file paths and line numbers."""
                 ["which", "rg"],
                 capture_output=True
             ).returncode == 0
-            
+
             if rg_available:
                 cmd = ["rg", "--line-number", "--with-filename"]
                 if not case_sensitive:
@@ -91,7 +91,7 @@ Returns matching lines with file paths and line numbers."""
                     "--include", file_pattern,
                     pattern, "."
                 ])
-            
+
             # Run search
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -99,23 +99,23 @@ Returns matching lines with file paths and line numbers."""
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self.cwd)
             )
-            
+
             stdout, stderr = await process.communicate()
-            
+
             if process.returncode not in [0, 1]:  # 1 means no matches
                 return {
                     "error": stderr.decode('utf-8', errors='replace'),
                     "matches": []
                 }
-            
+
             # Parse results
             output = stdout.decode('utf-8', errors='replace')
             matches = []
-            
+
             for line in output.strip().split('\n'):
                 if not line:
                     continue
-                
+
                 parts = line.split(':', 2)
                 if len(parts) >= 3:
                     matches.append({
@@ -123,11 +123,11 @@ Returns matching lines with file paths and line numbers."""
                         "line": parts[1],
                         "content": parts[2]
                     })
-            
+
             # Record search for workflow tracking
             if self.workflow:
                 self.workflow.record_search(pattern)
-            
+
             return {
                 "pattern": pattern,
                 "matches": matches,

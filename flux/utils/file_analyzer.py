@@ -1,5 +1,4 @@
 import os
-import ast
 
 
 def scan_for_code_files(directory, extensions=None):

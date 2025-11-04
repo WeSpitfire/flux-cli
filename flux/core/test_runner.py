@@ -51,12 +51,12 @@ class TestResult:
     failures: List[TestFailure] = field(default_factory=list)
     output: str = ""
     exit_code: int = 0
-    
+
     @property
     def success(self) -> bool:
         """Check if all tests passed."""
         return self.failed == 0 and self.status == TestStatus.PASSED
-    
+
     @property
     def pass_rate(self) -> float:
         """Calculate pass rate percentage."""
@@ -67,17 +67,17 @@ class TestResult:
 
 class TestRunner:
     """Smart test runner with framework detection and result parsing."""
-    
+
     def __init__(self, cwd: Path):
         """Initialize test runner.
-        
+
         Args:
             cwd: Current working directory
         """
         self.cwd = cwd
         self.framework = self._detect_framework()
         self.last_result: Optional[TestResult] = None
-    
+
     def _detect_framework(self) -> TestFramework:
         """Detect the test framework used in the project."""
         # Check for Python test frameworks
@@ -91,7 +91,7 @@ class TestRunner:
                         return TestFramework.PYTEST
                 except Exception:
                     pass
-        
+
         # Check for setup.py with test requirements
         setup_py = self.cwd / "setup.py"
         if setup_py.exists():
@@ -101,7 +101,7 @@ class TestRunner:
                     return TestFramework.PYTEST
             except Exception:
                 pass
-        
+
         # Check for JavaScript/TypeScript test frameworks
         package_json = self.cwd / "package.json"
         if package_json.exists():
@@ -109,7 +109,7 @@ class TestRunner:
                 with open(package_json) as f:
                     pkg = json.load(f)
                     deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
-                    
+
                     if "jest" in deps:
                         return TestFramework.JEST
                     elif "mocha" in deps:
@@ -118,7 +118,7 @@ class TestRunner:
                         return TestFramework.VITEST
             except Exception:
                 pass
-        
+
         # Look for test directories
         if (self.cwd / "tests").exists() or (self.cwd / "test").exists():
             # Default to pytest for Python projects
@@ -127,15 +127,15 @@ class TestRunner:
             # Check unittest pattern
             if any((self.cwd / "tests").glob("test_*.py")) if (self.cwd / "tests").exists() else False:
                 return TestFramework.UNITTEST
-        
+
         return TestFramework.UNKNOWN
-    
+
     def get_test_command(self, file_filter: Optional[str] = None) -> Optional[str]:
         """Get the appropriate test command for the detected framework.
-        
+
         Args:
             file_filter: Optional file or directory to filter tests
-            
+
         Returns:
             Test command string or None if framework unknown
         """
@@ -144,55 +144,55 @@ class TestRunner:
             if file_filter:
                 cmd += f" {file_filter}"
             return cmd
-        
+
         elif self.framework == TestFramework.UNITTEST:
             if file_filter:
                 return f"python -m unittest {file_filter}"
             return "python -m unittest discover"
-        
+
         elif self.framework == TestFramework.JEST:
             cmd = "npm test --"
             if file_filter:
                 cmd += f" {file_filter}"
             return cmd
-        
+
         elif self.framework == TestFramework.MOCHA:
             cmd = "npm test"
             if file_filter:
                 cmd += f" -- {file_filter}"
             return cmd
-        
+
         elif self.framework == TestFramework.VITEST:
             cmd = "npm run test"
             if file_filter:
                 cmd += f" -- {file_filter}"
             return cmd
-        
+
         return None
-    
+
     def run_tests(
         self,
         file_filter: Optional[str] = None,
         timeout: int = 60
     ) -> TestResult:
         """Run tests and parse results.
-        
+
         Args:
             file_filter: Optional file or directory to filter tests
             timeout: Maximum execution time in seconds
-            
+
         Returns:
             TestResult with parsed information
         """
         cmd = self.get_test_command(file_filter)
-        
+
         if not cmd:
             return TestResult(
                 framework=self.framework,
                 status=TestStatus.ERROR,
                 output="No test command available for this framework"
             )
-        
+
         try:
             result = subprocess.run(
                 cmd,
@@ -202,16 +202,16 @@ class TestRunner:
                 text=True,
                 timeout=timeout
             )
-            
+
             output = result.stdout + result.stderr
-            
+
             # Parse results based on framework
             test_result = self._parse_output(output, result.returncode)
             test_result.exit_code = result.returncode
-            
+
             self.last_result = test_result
             return test_result
-            
+
         except subprocess.TimeoutExpired:
             return TestResult(
                 framework=self.framework,
@@ -224,14 +224,14 @@ class TestRunner:
                 status=TestStatus.ERROR,
                 output=f"Error running tests: {str(e)}"
             )
-    
+
     def _parse_output(self, output: str, exit_code: int) -> TestResult:
         """Parse test output based on framework.
-        
+
         Args:
             output: Raw test output
             exit_code: Process exit code
-            
+
         Returns:
             Parsed TestResult
         """
@@ -249,38 +249,38 @@ class TestRunner:
                 output=output,
                 exit_code=exit_code
             )
-    
+
     def _parse_pytest_output(self, output: str, exit_code: int) -> TestResult:
         """Parse pytest output."""
         result = TestResult(
             framework=TestFramework.PYTEST,
             output=output
         )
-        
+
         # Parse summary line: "5 passed, 2 failed in 1.23s"
         summary_pattern = r'(\d+) passed(?:, (\d+) failed)?(?:, (\d+) skipped)?(?: in ([\d.]+)s)?'
         summary_match = re.search(summary_pattern, output)
-        
+
         if summary_match:
             result.passed = int(summary_match.group(1))
             result.failed = int(summary_match.group(2)) if summary_match.group(2) else 0
             result.skipped = int(summary_match.group(3)) if summary_match.group(3) else 0
             result.duration = float(summary_match.group(4)) if summary_match.group(4) else 0.0
             result.total_tests = result.passed + result.failed + result.skipped
-        
+
         # Parse failures
         failure_pattern = r'FAILED (.*?)::(.*?) - (.*?)(?:\n|$)'
         for match in re.finditer(failure_pattern, output):
             file_path = match.group(1)
             test_name = match.group(2)
             error_msg = match.group(3)
-            
+
             result.failures.append(TestFailure(
                 test_name=test_name,
                 file_path=file_path,
                 error_message=error_msg
             ))
-        
+
         # Determine status
         if result.failed > 0:
             result.status = TestStatus.FAILED
@@ -288,43 +288,43 @@ class TestRunner:
             result.status = TestStatus.PASSED
         else:
             result.status = TestStatus.ERROR
-        
+
         return result
-    
+
     def _parse_jest_output(self, output: str, exit_code: int) -> TestResult:
         """Parse Jest output."""
         result = TestResult(
             framework=TestFramework.JEST,
             output=output
         )
-        
+
         # Parse test summary: "Tests: 2 failed, 5 passed, 7 total"
         summary_pattern = r'Tests:\s+(?:(\d+) failed,?\s*)?(?:(\d+) passed,?\s*)?(\d+) total'
         summary_match = re.search(summary_pattern, output)
-        
+
         if summary_match:
             result.failed = int(summary_match.group(1)) if summary_match.group(1) else 0
             result.passed = int(summary_match.group(2)) if summary_match.group(2) else 0
             result.total_tests = int(summary_match.group(3))
             result.skipped = result.total_tests - result.passed - result.failed
-        
+
         # Parse duration
         time_pattern = r'Time:\s+([\d.]+)\s*s'
         time_match = re.search(time_pattern, output)
         if time_match:
             result.duration = float(time_match.group(1))
-        
+
         # Parse failures
         failure_pattern = r'●\s+(.*?)\n\n\s+(.*?)(?=\n\n|\Z)'
         for match in re.finditer(failure_pattern, output, re.DOTALL):
             test_name = match.group(1).strip()
             error_msg = match.group(2).strip()
-            
+
             result.failures.append(TestFailure(
                 test_name=test_name,
                 error_message=error_msg
             ))
-        
+
         # Determine status
         if result.failed > 0:
             result.status = TestStatus.FAILED
@@ -332,28 +332,28 @@ class TestRunner:
             result.status = TestStatus.PASSED
         else:
             result.status = TestStatus.ERROR
-        
+
         return result
-    
+
     def _parse_unittest_output(self, output: str, exit_code: int) -> TestResult:
         """Parse unittest output."""
         result = TestResult(
             framework=TestFramework.UNITTEST,
             output=output
         )
-        
+
         # Parse summary line: "Ran 10 tests in 0.123s"
         ran_pattern = r'Ran (\d+) test'
         ran_match = re.search(ran_pattern, output)
         if ran_match:
             result.total_tests = int(ran_match.group(1))
-        
+
         # Parse time
         time_pattern = r'in ([\d.]+)s'
         time_match = re.search(time_pattern, output)
         if time_match:
             result.duration = float(time_match.group(1))
-        
+
         # Check for OK or FAILED
         if "OK" in output:
             result.status = TestStatus.PASSED
@@ -368,21 +368,21 @@ class TestRunner:
                 result.passed = result.total_tests - result.failed
         else:
             result.status = TestStatus.ERROR if exit_code != 0 else TestStatus.PASSED
-        
+
         return result
-    
+
     def get_test_files_for_source(self, source_file: Path) -> List[Path]:
         """Find test files related to a source file.
-        
+
         Args:
             source_file: Path to source file
-            
+
         Returns:
             List of related test file paths
         """
         test_files = []
         file_name = source_file.stem
-        
+
         # Common test file patterns
         test_patterns = [
             f"test_{file_name}.py",
@@ -391,7 +391,7 @@ class TestRunner:
             f"{file_name}.test.js",
             f"{file_name}.spec.js",
         ]
-        
+
         # Search in common test directories
         test_dirs = [
             self.cwd / "tests",
@@ -399,12 +399,12 @@ class TestRunner:
             self.cwd / "__tests__",
             source_file.parent / "__tests__",
         ]
-        
+
         for test_dir in test_dirs:
             if test_dir.exists():
                 for pattern in test_patterns:
                     test_file = test_dir / pattern
                     if test_file.exists():
                         test_files.append(test_file)
-        
+
         return test_files

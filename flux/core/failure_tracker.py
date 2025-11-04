@@ -17,13 +17,13 @@ class ToolFailure:
 
 class FailureTracker:
     """Track tool failures and detect retry loops."""
-    
+
     def __init__(self):
         """Initialize failure tracker."""
         self.failures: List[ToolFailure] = []
         self.failure_count_by_tool: Dict[str, int] = {}
-    
-    def record_failure(self, 
+
+    def record_failure(self,
                       tool_name: str,
                       error_code: Optional[str],
                       error_message: str,
@@ -36,32 +36,32 @@ class FailureTracker:
             input_params=input_params
         )
         self.failures.append(failure)
-        
+
         # Update count
         self.failure_count_by_tool[tool_name] = self.failure_count_by_tool.get(tool_name, 0) + 1
-    
+
     def get_recent_failures(self, tool_name: str, limit: int = 5) -> List[ToolFailure]:
         """Get recent failures for a specific tool."""
         tool_failures = [f for f in self.failures if f.tool_name == tool_name]
         return tool_failures[-limit:]
-    
+
     def is_retry_loop(self, tool_name: str, threshold: int = 2) -> bool:
         """Check if we're in a retry loop."""
         return self.failure_count_by_tool.get(tool_name, 0) >= threshold
-    
+
     def get_retry_guidance(self, tool_name: str) -> Optional[str]:
         """Get guidance for breaking out of retry loop."""
         if not self.is_retry_loop(tool_name):
             return None
-        
+
         recent_failures = self.get_recent_failures(tool_name)
         if not recent_failures:
             return None
-        
+
         # Get the most recent error
         latest = recent_failures[-1]
         error_code = latest.error_code or ""
-        
+
         # Generate specific guidance based on tool and error
         if tool_name == "edit_file":
             if "SYNTAX_ERROR" in error_code or "indent" in latest.error_message.lower():
@@ -70,14 +70,14 @@ class FailureTracker:
                 return self._edit_file_search_guidance(latest)
             else:
                 return self._edit_file_general_guidance()
-        
+
         elif tool_name == "ast_edit":
             return self._ast_edit_guidance(latest)
-        
+
         elif tool_name == "write_file":
             if "SYNTAX_ERROR" in error_code:
                 return self._write_file_syntax_guidance(latest)
-        
+
         # General fallback
         return (
             f"**RETRY LOOP DETECTED**: {tool_name} has failed {len(recent_failures)} times in a row.\n\n"
@@ -87,7 +87,7 @@ class FailureTracker:
             f"3. Use a different tool\n"
             f"4. Ask for clarification if unclear\n"
         )
-    
+
     def _edit_file_indentation_guidance(self, failure: ToolFailure) -> str:
         """Specific guidance for edit_file indentation errors."""
         return (
@@ -113,7 +113,7 @@ class FailureTracker:
             f"```\n\n"
             f"**DO NOT** try edit_file again with the same approach!\n"
         )
-    
+
     def _edit_file_search_guidance(self, failure: ToolFailure) -> str:
         """Guidance for edit_file search not found errors."""
         return (
@@ -132,7 +132,7 @@ class FailureTracker:
             f"- Tabs vs spaces\n"
             f"- Text has changed since last read\n"
         )
-    
+
     def _edit_file_general_guidance(self) -> str:
         """General guidance for edit_file failures."""
         return (
@@ -143,7 +143,7 @@ class FailureTracker:
             f"3. **Alternative tool**: Try ast_edit for Python or write_file for new files\n"
             f"4. **Manual fix**: If stuck, explain what you tried and ask for help\n"
         )
-    
+
     def _ast_edit_guidance(self, failure: ToolFailure) -> str:
         """Guidance for ast_edit failures."""
         return (
@@ -157,7 +157,7 @@ class FailureTracker:
             f"- File is not valid Python\n"
             f"- Target location is ambiguous\n"
         )
-    
+
     def _write_file_syntax_guidance(self, failure: ToolFailure) -> str:
         """Guidance for write_file syntax errors."""
         return (
@@ -171,12 +171,12 @@ class FailureTracker:
             f"1. Create a minimal valid file first\n"
             f"2. Use edit_file to add functionality piece by piece\n"
         )
-    
+
     def reset(self) -> None:
         """Reset failure tracking (e.g., after successful operation)."""
         self.failures.clear()
         self.failure_count_by_tool.clear()
-    
+
     def clear_tool_failures(self, tool_name: str) -> None:
         """Clear failures for a specific tool (e.g., after success)."""
         self.failures = [f for f in self.failures if f.tool_name != tool_name]

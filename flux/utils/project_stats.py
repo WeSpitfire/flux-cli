@@ -11,7 +11,7 @@ class ProjectAnalyzer:
             'total_functions': 0,
             'total_classes': 0
         }
-        
+
         for root, _, files in os.walk(directory):
             for file in files:
                 if file.endswith('.py'):
@@ -51,5 +51,5 @@ class ProjectAnalyzer:
 
                                     return stats
 
-        
+
         return metrics

@@ -1142,17 +1142,15 @@ The workflow has finished. I'm ready for your next question or task."""
         query_lower = query.lower()
 
         # Orchestration triggers
+        # NOTE: Orchestrator is designed for KNOWN WORKFLOWS with clear steps,
+        # NOT for complex feature development which needs iterative LLM reasoning
         orchestration_patterns = [
-            # Build/create
-            r'(build|create|add|make|generate).*?(page|feature|component|function|class|api|endpoint)',
-            # Testing
-            r'(run|execute).*?tests?',
-            r'fix.*?(test|failing)',
-            # Workflows
-            r'(refactor|optimize|improve).*?(and|then)',
-            r'.*?(test|check|validate).*?(after|and)',
-            # Commit
+            # Testing workflows (known steps: run → analyze → fix → test)
+            r'(run|execute).*?tests?.*?(fix|and)',
+            r'fix.*?(test|failing).*?(and|then)',
+            # Commit workflows (known steps: review → commit)
             r'(commit|save).*?(changes|work)',
+            # REMOVED: build/create/implement patterns - these need conversation mode
         ]
 
         import re

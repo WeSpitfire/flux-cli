@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
-import time
 
 
 class SuggestionType(Enum):
@@ -64,20 +63,20 @@ class WorkContext:
 
 class SuggestionsEngine:
     """Generates proactive suggestions based on context."""
-    
+
     def __init__(self, cwd: Path, codebase_graph=None):
         self.cwd = cwd
         self.codebase_graph = codebase_graph
         self.work_context = WorkContext()
         self.suggestion_history: List[Suggestion] = []
-        
+
         # Pattern detectors
         self.security_patterns = self._load_security_patterns()
         self.performance_patterns = self._load_performance_patterns()
         self.quality_patterns = self._load_quality_patterns()
-    
+
     def update_context(
-        self, 
+        self,
         current_file: Optional[str] = None,
         recent_command: Optional[str] = None
     ):
@@ -87,54 +86,54 @@ class SuggestionsEngine:
             if current_file not in self.work_context.recent_files:
                 self.work_context.recent_files.append(current_file)
                 self.work_context.recent_files = self.work_context.recent_files[-10:]  # Keep last 10
-        
+
         if recent_command:
             self.work_context.recent_commands.append(recent_command)
             self.work_context.recent_commands = self.work_context.recent_commands[-20:]  # Keep last 20
-        
+
         # Detect current task
         self.work_context.detected_task = self._detect_current_task()
-    
+
     def get_suggestions(
-        self, 
+        self,
         max_suggestions: int = 5,
         min_priority: Priority = Priority.LOW
     ) -> List[Suggestion]:
         """Get proactive suggestions based on current context."""
         suggestions = []
-        
+
         # 1. Next action suggestions
         suggestions.extend(self._suggest_next_actions())
-        
+
         # 2. Code quality suggestions
         if self.work_context.current_file:
             suggestions.extend(self._suggest_code_quality_improvements())
-        
+
         # 3. Security suggestions
         suggestions.extend(self._suggest_security_improvements())
-        
+
         # 4. Performance suggestions
         suggestions.extend(self._suggest_performance_improvements())
-        
+
         # 5. Testing suggestions
         suggestions.extend(self._suggest_testing_improvements())
-        
+
         # 6. Documentation suggestions
         suggestions.extend(self._suggest_documentation_improvements())
-        
+
         # Filter by priority
         priority_order = [Priority.CRITICAL, Priority.HIGH, Priority.MEDIUM, Priority.LOW]
         min_priority_index = priority_order.index(min_priority)
         suggestions = [
-            s for s in suggestions 
+            s for s in suggestions
             if priority_order.index(s.priority) <= min_priority_index
         ]
-        
+
         # Sort by priority and confidence
         suggestions.sort(
             key=lambda s: (priority_order.index(s.priority), -s.confidence)
         )
-        
+
         # Deduplicate
         seen_titles = set()
         unique_suggestions = []
@@ -142,27 +141,27 @@ class SuggestionsEngine:
             if s.title not in seen_titles:
                 seen_titles.add(s.title)
                 unique_suggestions.append(s)
-        
+
         return unique_suggestions[:max_suggestions]
-    
+
     def _suggest_next_actions(self) -> List[Suggestion]:
         """Suggest logical next steps based on recent activity."""
         suggestions = []
-        
+
         current_file = self.work_context.current_file
         if not current_file:
             return suggestions
-        
+
         # Detect file type and context
         file_path = Path(self.cwd) / current_file
         if not file_path.exists():
             return suggestions
-        
+
         try:
             content = file_path.read_text()
         except Exception:
             return suggestions
-        
+
         # Pattern: Working on authentication
         if self._is_auth_related(current_file, content):
             suggestions.append(Suggestion(
@@ -175,7 +174,7 @@ class SuggestionsEngine:
                 confidence=0.85,
                 reasoning="Detected authentication code without rate limiting"
             ))
-            
+
             suggestions.append(Suggestion(
                 type=SuggestionType.NEXT_ACTION,
                 priority=Priority.HIGH,
@@ -186,7 +185,7 @@ class SuggestionsEngine:
                 confidence=0.82,
                 reasoning="Auth code should log security events"
             ))
-        
+
         # Pattern: Working on API endpoints
         if self._is_api_related(current_file, content):
             if not self._has_error_handling(content):
@@ -200,7 +199,7 @@ class SuggestionsEngine:
                     confidence=0.88,
                     reasoning="API endpoints missing error handling"
                 ))
-            
+
             if not self._has_input_validation(content):
                 suggestions.append(Suggestion(
                     type=SuggestionType.NEXT_ACTION,
@@ -212,7 +211,7 @@ class SuggestionsEngine:
                     confidence=0.90,
                     reasoning="API endpoints should validate inputs"
                 ))
-        
+
         # Pattern: Working on database code
         if self._is_database_related(current_file, content):
             suggestions.append(Suggestion(
@@ -225,7 +224,7 @@ class SuggestionsEngine:
                 confidence=0.80,
                 reasoning="Database operations should use transactions"
             ))
-        
+
         # Pattern: Modified file without tests
         if self._needs_tests(current_file):
             suggestions.append(Suggestion(
@@ -238,29 +237,29 @@ class SuggestionsEngine:
                 confidence=0.85,
                 reasoning="Modified code should have test coverage"
             ))
-        
+
         return suggestions
-    
+
     def _suggest_code_quality_improvements(self) -> List[Suggestion]:
         """Suggest code quality improvements."""
         suggestions = []
-        
+
         current_file = self.work_context.current_file
         if not current_file:
             return suggestions
-        
+
         file_path = Path(self.cwd) / current_file
         if not file_path.exists() or not current_file.endswith('.py'):
             return suggestions
-        
+
         try:
             content = file_path.read_text()
             tree = ast.parse(content)
         except Exception:
             return suggestions
-        
+
         # Check for code smells
-        
+
         # 1. Long functions (>50 lines)
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
@@ -277,7 +276,7 @@ class SuggestionsEngine:
                         confidence=0.75,
                         reasoning="Functions over 50 lines are harder to maintain"
                     ))
-        
+
         # 2. Missing docstrings
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
@@ -293,7 +292,7 @@ class SuggestionsEngine:
                         confidence=0.70,
                         reasoning="All functions and classes should have docstrings"
                     ))
-        
+
         # 3. Unused imports
         imports = self._find_unused_imports(tree, content)
         if imports:
@@ -307,28 +306,28 @@ class SuggestionsEngine:
                 confidence=0.85,
                 reasoning="Clean code removes unused imports"
             ))
-        
+
         return suggestions
-    
+
     def _suggest_security_improvements(self) -> List[Suggestion]:
         """Suggest security improvements."""
         suggestions = []
-        
+
         current_file = self.work_context.current_file
         if not current_file:
             return suggestions
-        
+
         file_path = Path(self.cwd) / current_file
         if not file_path.exists():
             return suggestions
-        
+
         try:
             content = file_path.read_text()
         except Exception:
             return suggestions
-        
+
         # Check for security issues
-        
+
         # 1. SQL Injection risk
         if re.search(r'execute\s*\(["\'].*%s.*["\']', content):
             suggestions.append(Suggestion(
@@ -341,7 +340,7 @@ class SuggestionsEngine:
                 confidence=0.90,
                 reasoning="String formatting in SQL is dangerous"
             ))
-        
+
         # 2. Hardcoded secrets
         secret_patterns = [
             r'password\s*=\s*["\'][^"\']+["\']',
@@ -362,7 +361,7 @@ class SuggestionsEngine:
                     reasoning="Hardcoded secrets are a security risk"
                 ))
                 break  # Only suggest once
-        
+
         # 3. Unsafe eval/exec
         if re.search(r'\beval\s*\(|\bexec\s*\(', content):
             suggestions.append(Suggestion(
@@ -375,28 +374,28 @@ class SuggestionsEngine:
                 confidence=0.95,
                 reasoning="eval/exec are dangerous with untrusted input"
             ))
-        
+
         return suggestions
-    
+
     def _suggest_performance_improvements(self) -> List[Suggestion]:
         """Suggest performance improvements."""
         suggestions = []
-        
+
         current_file = self.work_context.current_file
         if not current_file or not current_file.endswith('.py'):
             return suggestions
-        
+
         file_path = Path(self.cwd) / current_file
         if not file_path.exists():
             return suggestions
-        
+
         try:
             content = file_path.read_text()
         except Exception:
             return suggestions
-        
+
         # Check for performance issues
-        
+
         # 1. Nested loops (potential N^2 or worse)
         if re.search(r'for\s+\w+\s+in.*:\s*\n\s+for\s+\w+\s+in', content):
             suggestions.append(Suggestion(
@@ -409,7 +408,7 @@ class SuggestionsEngine:
                 confidence=0.70,
                 reasoning="Nested loops can be slow with large data"
             ))
-        
+
         # 2. String concatenation in loops
         if re.search(r'for\s+.*:\s*\n\s+\w+\s*\+=\s*["\']', content):
             suggestions.append(Suggestion(
@@ -422,17 +421,17 @@ class SuggestionsEngine:
                 confidence=0.75,
                 reasoning="String concatenation creates many temporary objects"
             ))
-        
+
         return suggestions
-    
+
     def _suggest_testing_improvements(self) -> List[Suggestion]:
         """Suggest testing improvements."""
         suggestions = []
-        
+
         # Check if project has tests
         test_dirs = ['tests', 'test', '__tests__']
         has_tests = any((self.cwd / test_dir).exists() for test_dir in test_dirs)
-        
+
         if not has_tests:
             suggestions.append(Suggestion(
                 type=SuggestionType.TESTING,
@@ -443,7 +442,7 @@ class SuggestionsEngine:
                 confidence=0.90,
                 reasoning="All projects should have tests"
             ))
-        
+
         # Check if current file has tests
         current_file = self.work_context.current_file
         if current_file and self._needs_tests(current_file):
@@ -457,17 +456,17 @@ class SuggestionsEngine:
                 confidence=0.85,
                 reasoning="Each module should have tests"
             ))
-        
+
         return suggestions
-    
+
     def _suggest_documentation_improvements(self) -> List[Suggestion]:
         """Suggest documentation improvements."""
         suggestions = []
-        
+
         # Check for README
         readme_files = ['README.md', 'README.rst', 'README.txt']
         has_readme = any((self.cwd / readme).exists() for readme in readme_files)
-        
+
         if not has_readme:
             suggestions.append(Suggestion(
                 type=SuggestionType.DOCUMENTATION,
@@ -478,18 +477,18 @@ class SuggestionsEngine:
                 confidence=0.95,
                 reasoning="Every project needs a README"
             ))
-        
+
         return suggestions
-    
+
     # Helper methods
-    
+
     def _detect_current_task(self) -> Optional[str]:
         """Detect what the user is working on."""
         if not self.work_context.current_file:
             return None
-        
+
         current_file = self.work_context.current_file.lower()
-        
+
         if 'auth' in current_file or 'login' in current_file:
             return "authentication"
         elif 'api' in current_file or 'endpoint' in current_file:
@@ -498,51 +497,51 @@ class SuggestionsEngine:
             return "database"
         elif 'test' in current_file:
             return "testing"
-        
+
         return None
-    
+
     def _is_auth_related(self, file_path: str, content: str) -> bool:
         """Check if file is auth-related."""
         auth_keywords = ['auth', 'login', 'password', 'credential', 'token', 'session']
         return any(kw in file_path.lower() or kw in content.lower() for kw in auth_keywords)
-    
+
     def _is_api_related(self, file_path: str, content: str) -> bool:
         """Check if file is API-related."""
         api_keywords = ['@app.route', '@router', 'endpoint', 'api', 'request', 'response']
         return any(kw in content.lower() for kw in api_keywords)
-    
+
     def _is_database_related(self, file_path: str, content: str) -> bool:
         """Check if file has database code."""
         db_keywords = ['execute', 'query', 'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'commit', 'rollback']
         return any(kw in content for kw in db_keywords)
-    
+
     def _has_error_handling(self, content: str) -> bool:
         """Check if code has error handling."""
         return 'try:' in content or 'except' in content
-    
+
     def _has_input_validation(self, content: str) -> bool:
         """Check if code validates inputs."""
         validation_keywords = ['validate', 'schema', 'check_', 'assert', 'raise ValueError']
         return any(kw in content for kw in validation_keywords)
-    
+
     def _needs_tests(self, file_path: str) -> bool:
         """Check if file needs tests."""
         if 'test' in file_path.lower():
             return False
-        
+
         # Look for corresponding test file
         test_patterns = [
             file_path.replace('.py', '_test.py'),
             f"tests/test_{Path(file_path).name}",
             f"test/{Path(file_path).name}"
         ]
-        
+
         return not any((self.cwd / pattern).exists() for pattern in test_patterns)
-    
+
     def _find_unused_imports(self, tree: ast.AST, content: str) -> List[str]:
         """Find unused imports."""
         unused = []
-        
+
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -550,9 +549,9 @@ class SuggestionsEngine:
                     # Simple check: if import name doesn't appear elsewhere in code
                     if content.count(name) == 1:  # Only appears in import line
                         unused.append(name)
-        
+
         return unused[:3]  # Limit to 3
-    
+
     def _load_security_patterns(self) -> List[Dict]:
         """Load security vulnerability patterns."""
         return [
@@ -560,13 +559,13 @@ class SuggestionsEngine:
             {'pattern': r'exec\s*\(', 'severity': 'critical', 'message': 'Unsafe exec()'},
             {'pattern': r'password\s*=\s*["\']', 'severity': 'critical', 'message': 'Hardcoded password'},
         ]
-    
+
     def _load_performance_patterns(self) -> List[Dict]:
         """Load performance anti-patterns."""
         return [
             {'pattern': r'for.*:\s*\n\s*for', 'severity': 'medium', 'message': 'Nested loops'},
         ]
-    
+
     def _load_quality_patterns(self) -> List[Dict]:
         """Load code quality patterns."""
         return []

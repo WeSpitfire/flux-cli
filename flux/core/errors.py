@@ -7,12 +7,12 @@ from typing import Optional, List, Dict, Any
 @dataclass
 class ToolError:
     """Structured error response with recovery guidance."""
-    
+
     code: str
     message: str
     suggestion: str
     details: Optional[Dict[str, Any]] = None
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {
@@ -46,7 +46,7 @@ def file_not_found_error(path: str, similar_files: Optional[List[str]] = None) -
     details = {}
     if similar_files:
         details["similar_files"] = similar_files[:5]  # Top 5 matches
-    
+
     return ToolError(
         code=ErrorCode.FILE_NOT_FOUND,
         message=f"File not found: {path}",
@@ -64,7 +64,7 @@ def search_not_found_error(
     details = {}
     if closest_match:
         details["closest_match"] = closest_match
-    
+
     return ToolError(
         code=ErrorCode.SEARCH_TEXT_NOT_FOUND,
         message=f"Search text not found in {file_path}",
@@ -84,7 +84,7 @@ def function_exists_error(
     }
     if current_signature:
         details["current_signature"] = current_signature
-    
+
     return ToolError(
         code=ErrorCode.FUNCTION_EXISTS,
         message=f"Function '{function_name}' already exists at line {line_number}",
@@ -101,7 +101,7 @@ def function_not_found_error(
     details = {}
     if available_functions:
         details["available_functions"] = available_functions[:10]
-    
+
     return ToolError(
         code=ErrorCode.FUNCTION_NOT_FOUND,
         message=f"Function '{function_name}' not found in file",
@@ -123,20 +123,20 @@ def syntax_error_response(
     }
     if line_number:
         details["line_number"] = line_number
-    
+
     # Analyze indentation if we have both contents
     suggestion = "Try edit_file instead for more precise control, or break the change into smaller steps"
-    
+
     if original_content and modified_content and line_number and "indent" in error_message.lower():
         indent_analysis = _analyze_indentation_error(
-            original_content, 
-            modified_content, 
+            original_content,
+            modified_content,
             line_number
         )
         if indent_analysis:
             details.update(indent_analysis)
             suggestion = indent_analysis.get("suggestion", suggestion)
-    
+
     return ToolError(
         code=ErrorCode.SYNTAX_ERROR,
         message=f"Syntax error: {error_message}",
@@ -154,27 +154,27 @@ def _analyze_indentation_error(
     try:
         orig_lines = original.split('\n')
         mod_lines = modified.split('\n')
-        
+
         if error_line > len(mod_lines) or error_line < 1:
             return None
-        
+
         error_idx = error_line - 1
         error_line_text = mod_lines[error_idx] if error_idx < len(mod_lines) else ""
-        
+
         # Calculate indentation
         error_indent = len(error_line_text) - len(error_line_text.lstrip())
-        
+
         # Find expected indentation from previous non-empty lines
         expected_indent = None
         for i in range(error_idx - 1, max(0, error_idx - 10), -1):
             if i < len(orig_lines) and orig_lines[i].strip():
                 expected_indent = len(orig_lines[i]) - len(orig_lines[i].lstrip())
                 break
-        
+
         # Show context around error
         context_start = max(0, error_idx - 2)
         context_end = min(len(mod_lines), error_idx + 3)
-        
+
         context_lines = []
         for i in range(context_start, context_end):
             if i < len(mod_lines):
@@ -183,7 +183,7 @@ def _analyze_indentation_error(
                 context_lines.append(
                     f"  {i+1:3d}|{mod_lines[i][:80]}{marker}  (indent: {indent_spaces} spaces)"
                 )
-        
+
         # Build helpful suggestion
         if expected_indent is not None:
             indent_diff = error_indent - expected_indent
@@ -193,7 +193,7 @@ def _analyze_indentation_error(
                 direction = f"Add {-indent_diff} spaces"
             else:
                 direction = "Check context"
-            
+
             suggestion = (
                 f"Indentation mismatch at line {error_line}. "
                 f"Expected: {expected_indent} spaces (to match surrounding code), "
@@ -207,7 +207,7 @@ def _analyze_indentation_error(
                 f"Current indent: {error_indent} spaces. "
                 f"Read lines {context_start+1}-{context_end} to see the correct indentation."
             )
-        
+
         return {
             "indentation_error": True,
             "expected_indent": expected_indent,
@@ -216,7 +216,7 @@ def _analyze_indentation_error(
             "context_range": f"{context_start+1}-{context_end}",
             "suggestion": suggestion
         }
-    
+
     except Exception:
         return None
 

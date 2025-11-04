@@ -22,7 +22,7 @@ from tree_sitter import Language, Parser, Node
 
 class ASTEditTool(Tool):
     """Tool for AST-aware code editing."""
-    
+
     # Language mappings
     LANGUAGES = {
         '.py': ('python', Language(tspython.language())),
@@ -31,7 +31,7 @@ class ASTEditTool(Tool):
         '.ts': ('typescript', Language(tstypescript.language_typescript())),
         '.tsx': ('tsx', Language(tstypescript.language_tsx())),
     }
-    
+
     def __init__(self, cwd: Path, show_diff: bool = True, undo_manager=None, workflow_enforcer=None, approval_manager=None):
         """Initialize with current working directory."""
         self.cwd = cwd
@@ -42,21 +42,21 @@ class ASTEditTool(Tool):
         self.console = Console()
         self.diff_preview = DiffPreview(self.console)
         self.analyzer = FileStructureAnalyzer()  # File structure intelligence
-    
+
     @property
     def name(self) -> str:
         return "ast_edit"
-    
+
     @property
     def description(self) -> str:
         return """AST-aware editing for Python functions and imports.
-        
+
 USAGE: Python files only. For JS/TS, use edit_file instead.
 OPERATIONS: add_function, remove_function, modify_function, add_import, remove_import (ONLY these 5)
 BEST FOR: Adding COMPLETE NEW Python functions to a class/module.
 WARNING: If this tool fails EVEN ONCE, immediately pivot to edit_file. Do NOT retry ast_edit.
 ON ERROR: Use edit_file instead (more reliable for modifications)."""
-    
+
     @property
     def parameters(self) -> List[ToolParameter]:
         return [
@@ -86,7 +86,7 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
                 required=False
             )
         ]
-    
+
     async def execute(
         self,
         path: str,
@@ -99,10 +99,10 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
             file_path = Path(path)
             if not file_path.is_absolute():
                 file_path = self.cwd / file_path
-            
+
             if not file_path.exists():
                 return file_not_found_error(str(file_path))
-            
+
             # Check workflow enforcement
             if self.workflow:
                 check = self.workflow.check_modification_allowed(file_path, "ast_edit")
@@ -112,7 +112,7 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
                         "suggestions": check.get("suggestions", []),
                         "workflow_blocked": True
                     }
-            
+
             # Get language for file
             lang_info = self._get_language(file_path)
             if not lang_info:
@@ -120,44 +120,44 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
                     "error": f"Unsupported file type: {file_path.suffix}",
                     "hint": "Supported: .py, .js, .jsx, .ts, .tsx"
                 }
-            
+
             lang_name, language = lang_info
-            
+
             # Read current content
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            
+
             # Parse with tree-sitter
             parser = Parser(language)
             tree = parser.parse(bytes(content, 'utf8'))
-            
+
             # Perform operation
             result = self._perform_operation(
                 content, tree, operation, target, code, lang_name
             )
-            
+
             if result.get("error"):
                 return result
-            
+
             # Get modified content
             new_content = result["new_content"]
-            
+
             # Show diff preview if enabled (only if no approval manager, otherwise approval shows it)
             if self.show_diff and not self.approval:
                 self.diff_preview.display_compact_diff(content, new_content, file_path.name)
-            
+
             # Validate syntax before applying
             validation = SyntaxChecker.validate_modification(
                 file_path, content, new_content
             )
-            
+
             if validation["should_rollback"]:
                 return syntax_error_response(
                     validation["error"],
                     line_number=validation.get("line"),
                     rolled_back=True
                 )
-            
+
             # Request approval if approval manager is present
             if self.approval:
                 additions, deletions, _ = self.diff_preview.get_change_stats(content, new_content)
@@ -173,14 +173,14 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
                         "lines": f"{len(content.splitlines())} → {len(new_content.splitlines())}"
                     }
                 )
-                
+
                 if not approved:
                     return {
                         "error": "Change rejected by user",
                         "rejected": True,
                         "path": str(file_path)
                     }
-            
+
             # Record undo snapshot before writing
             if self.undo_manager:
                 self.undo_manager.snapshot_operation(
@@ -190,14 +190,14 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
                     new_content=new_content,
                     description=f"AST edit: {operation} {target} in {file_path.name}"
                 )
-            
+
             # Write modified content
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(new_content)
-            
+
             # Get change stats
             additions, deletions, modifications = self.diff_preview.get_change_stats(content, new_content)
-            
+
             return {
                 "success": True,
                 "operation": operation,
@@ -206,15 +206,15 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
                 "changes": result.get("changes", "Content modified"),
                 "diff_summary": f"+{additions} -{deletions} ~{modifications}"
             }
-            
+
         except Exception as e:
             return {"error": str(e)}
-    
+
     def _get_language(self, file_path: Path) -> Optional[tuple]:
         """Get language info for file."""
         suffix = file_path.suffix.lower()
         return self.LANGUAGES.get(suffix)
-    
+
     def _perform_operation(
         self,
         content: str,
@@ -225,7 +225,7 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
         lang_name: str
     ) -> Dict[str, Any]:
         """Perform the requested AST operation."""
-        
+
         if operation == "add_function":
             return self._add_function(content, tree, target, code, lang_name)
         elif operation == "remove_function":
@@ -239,7 +239,7 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
         else:
             valid_ops = ["add_function", "remove_function", "modify_function", "add_import", "remove_import"]
             return invalid_operation_error(operation, valid_ops)
-    
+
     def _add_function(
         self,
         content: str,
@@ -251,12 +251,12 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
         """Add a new function to the file."""
         if not code:
             return {"error": "Code parameter required for add_function"}
-        
+
         # Use FileStructureAnalyzer for Python files to prevent duplicates
         if lang_name == 'python':
             # Extract function name from code if not provided properly
             func_name = self._extract_function_name(code) or name
-            
+
             # Get the file path from context (we need to pass it through)
             # For now, use tree-sitter as fallback
             existing = self._find_function_node(tree.root_node, func_name, lang_name)
@@ -273,10 +273,10 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
             if existing:
                 line_num = content[:existing.start_byte].count('\n') + 1
                 return function_exists_error(name, line_num)
-        
+
         # Find the best insertion point
         insertion_point = self._find_insertion_point(tree.root_node, lang_name, content)
-        
+
         # Insert the function at the proper location
         if insertion_point == len(content):
             # Add at end
@@ -291,12 +291,12 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
                 '\n\n' + code.strip() + '\n' +
                 content[insertion_point:]
             )
-        
+
         return {
             "new_content": new_content,
             "changes": f"Added function '{name}'"
         }
-    
+
     def _remove_function(
         self,
         content: str,
@@ -307,29 +307,29 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
         """Remove a function from the file."""
         # Find function definition node
         func_node = self._find_function_node(tree.root_node, name, lang_name)
-        
+
         if not func_node:
             # List available functions to help
             available = self._list_functions(tree.root_node, lang_name)
             return function_not_found_error(name, available)
-        
+
         # Remove the function's text
         start_byte = func_node.start_byte
         end_byte = func_node.end_byte
-        
+
         new_content = (
             content[:start_byte] +
             content[end_byte:]
         )
-        
+
         # Clean up extra blank lines
         new_content = self._clean_blank_lines(new_content)
-        
+
         return {
             "new_content": new_content,
             "changes": f"Removed function '{name}'"
         }
-    
+
     def _modify_function(
         self,
         content: str,
@@ -341,29 +341,29 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
         """Modify an existing function."""
         if not code:
             return {"error": "Code parameter required for modify_function"}
-        
+
         # Find function definition node
         func_node = self._find_function_node(tree.root_node, name, lang_name)
-        
+
         if not func_node:
             available = self._list_functions(tree.root_node, lang_name)
             return function_not_found_error(name, available)
-        
+
         # Replace the function's text
         start_byte = func_node.start_byte
         end_byte = func_node.end_byte
-        
+
         new_content = (
             content[:start_byte] +
             code.strip() + '\n' +
             content[end_byte:]
         )
-        
+
         return {
             "new_content": new_content,
             "changes": f"Modified function '{name}'"
         }
-    
+
     def _add_import(
         self,
         content: str,
@@ -375,27 +375,27 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
         """Add an import statement."""
         if not code:
             return {"error": "Code parameter required for add_import (the import statement)"}
-        
+
         # Find where to insert (after existing imports or at top)
         lines = content.split('\n')
         insert_line = 0
-        
+
         # Find last import
         for i, line in enumerate(lines):
             if lang_name == 'python' and (line.startswith('import ') or line.startswith('from ')):
                 insert_line = i + 1
             elif lang_name in ['javascript', 'typescript', 'tsx'] and (line.startswith('import ') or line.startswith('const ') or line.startswith('require(')):
                 insert_line = i + 1
-        
+
         # Insert the import
         lines.insert(insert_line, code.strip())
         new_content = '\n'.join(lines)
-        
+
         return {
             "new_content": new_content,
             "changes": f"Added import for '{module}'"
         }
-    
+
     def _remove_import(
         self,
         content: str,
@@ -407,24 +407,24 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
         lines = content.split('\n')
         new_lines = []
         removed = False
-        
+
         for line in lines:
             # Simple text matching for import removal
             if module in line and ('import' in line or 'require' in line):
                 removed = True
                 continue
             new_lines.append(line)
-        
+
         if not removed:
             return {"error": f"Import for '{module}' not found"}
-        
+
         new_content = '\n'.join(new_lines)
-        
+
         return {
             "new_content": new_content,
             "changes": f"Removed import for '{module}'"
         }
-    
+
     def _find_function_node(self, node: Node, name: str, lang_name: str) -> Optional[Node]:
         """Find a function definition node by name."""
         # Node types vary by language
@@ -436,28 +436,28 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
             name_field = 'name'
         else:
             return None
-        
+
         # Recursively search for function
         if node.type in func_types:
             # Check if this is the function we're looking for
             for child in node.children:
                 if child.type == 'identifier' and child.text.decode('utf-8') == name:
                     return node
-        
+
         # Recurse into children
         for child in node.children:
             result = self._find_function_node(child, name, lang_name)
             if result:
                 return result
-        
+
         return None
-    
+
     def _clean_blank_lines(self, content: str) -> str:
         """Clean up excessive blank lines."""
         lines = content.split('\n')
         cleaned = []
         blank_count = 0
-        
+
         for line in lines:
             if line.strip():
                 cleaned.append(line)
@@ -466,14 +466,14 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
                 blank_count += 1
                 if blank_count <= 2:  # Allow max 2 blank lines
                     cleaned.append(line)
-        
+
         return '\n'.join(cleaned)
-    
+
     def _find_insertion_point(self, node: Node, lang_name: str, content: str) -> int:
         """Find the best place to insert a new function."""
         # Find the last function or class definition
         last_definition_end = 0
-        
+
         for child in node.children:
             if lang_name == 'python':
                 if child.type in ['function_definition', 'class_definition']:
@@ -481,14 +481,14 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
             elif lang_name in ['javascript', 'typescript', 'tsx']:
                 if child.type in ['function_declaration', 'class_declaration']:
                     last_definition_end = max(last_definition_end, child.end_byte)
-        
+
         # If we found definitions, insert after the last one
         if last_definition_end > 0:
             return last_definition_end
-        
+
         # Otherwise, insert at end
         return len(content)
-    
+
     def _extract_function_name(self, code: str) -> Optional[str]:
         """Extract function name from function definition code."""
         import ast
@@ -500,11 +500,11 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
         except:
             pass
         return None
-    
+
     def _list_functions(self, node: Node, lang_name: str) -> List[str]:
         """List all function names in the file for error messages."""
         functions = []
-        
+
         # Node types vary by language
         if lang_name == 'python':
             func_types = ['function_definition']
@@ -512,7 +512,7 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
             func_types = ['function_declaration', 'function', 'method_definition']
         else:
             return functions
-        
+
         def recurse(n: Node):
             if n.type in func_types:
                 # Find the name identifier
@@ -522,6 +522,6 @@ ON ERROR: Use edit_file instead (more reliable for modifications)."""
                         break
             for child in n.children:
                 recurse(child)
-        
+
         recurse(node)
         return functions

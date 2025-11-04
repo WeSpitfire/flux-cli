@@ -3,7 +3,6 @@
 Tracks current task, checkpoints, recent changes, and important findings per project.
 """
 
-from __future__ import annotations
 
 import json
 import time
@@ -161,21 +160,21 @@ class MemoryStore:
             self.state.project_files.insert(0, file_info)
             self.state.project_files = self.state.project_files[:50]  # keep last 50
             self.save()
-    
+
     def get_project_summary(self) -> str:
         """Get a summary of files created in this session."""
         if not self.state.project_files:
             return "No files created in this session yet."
-        
+
         lines = ["Files created/modified in this session:"]
         for f in self.state.project_files[:10]:
             lines.append(f"  - {f['name']} ({f['operation']}) at {_human_ts(f['timestamp'])}")
-        
+
         if len(self.state.project_files) > 10:
             lines.append(f"  ... and {len(self.state.project_files) - 10} more")
-        
+
         return "\n".join(lines)
-    
+
     # Convenience getters
     def last_checkpoint(self) -> Optional[Checkpoint]:
         return self.state.checkpoints[0] if self.state.checkpoints else None

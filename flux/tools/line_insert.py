@@ -10,18 +10,18 @@ from flux.core.errors import syntax_error_response
 
 class InsertAtLineTool(Tool):
     """Insert code at specific line numbers with automatic indentation."""
-    
+
     def __init__(self, cwd: Path, undo_manager=None, workflow_enforcer=None, approval_manager=None):
         """Initialize with current working directory."""
         self.cwd = cwd
         self.undo_manager = undo_manager
         self.workflow = workflow_enforcer
         self.approval = approval_manager
-    
+
     @property
     def name(self) -> str:
         return "insert_at_line"
-    
+
     @property
     def description(self) -> str:
         return """Insert code at a specific line number with AUTOMATIC indentation handling.
@@ -45,7 +45,7 @@ MODE OPTIONS:
 - 'before': Insert before the line number
 - 'after': Insert after the line number (most common)
 - 'replace': Replace the line"""
-    
+
     @property
     def parameters(self) -> List[ToolParameter]:
         return [
@@ -74,10 +74,10 @@ MODE OPTIONS:
                 required=False
             )
         ]
-    
-    async def execute(self, 
-                     path: str, 
-                     line_number: int, 
+
+    async def execute(self,
+                     path: str,
+                     line_number: int,
                      code: str,
                      mode: str = "after") -> Dict[str, Any]:
         """Insert code at line number with automatic indentation."""
@@ -85,7 +85,7 @@ MODE OPTIONS:
             file_path = Path(path)
             if not file_path.is_absolute():
                 file_path = self.cwd / file_path
-            
+
             # Check workflow enforcement
             if self.workflow:
                 check = self.workflow.check_modification_allowed(file_path, "insert_at_line")
@@ -95,22 +95,22 @@ MODE OPTIONS:
                         "suggestions": check.get("suggestions", []),
                         "workflow_blocked": True
                     }
-            
+
             if not file_path.exists():
                 return {"error": "File not found"}
-            
+
             # Read current content
             with open(file_path, 'r', encoding='utf-8') as f:
                 original_content = f.read()
-            
+
             lines = original_content.split('\n')
-            
+
             # Validate line number
             if line_number < 1 or line_number > len(lines) + 1:
                 return {
                     "error": f"Invalid line number: {line_number}. File has {len(lines)} lines."
                 }
-            
+
             # Detect indentation at target line
             if mode == "before":
                 target_line = line_number
@@ -118,23 +118,23 @@ MODE OPTIONS:
                 target_line = min(line_number + 1, len(lines))
             else:  # replace
                 target_line = line_number
-            
+
             indent_str, indent_count = IndentationHelper.detect_indentation_from_context(
                 original_content,
                 target_line,
                 look_back=10
             )
-            
+
             # Normalize code indentation
             normalized_code = IndentationHelper.normalize_indentation(
                 code,
                 indent_str,
                 indent_count
             )
-            
+
             # Insert code based on mode
             new_lines = lines.copy()
-            
+
             if mode == "before":
                 # Insert before line
                 new_lines.insert(line_number - 1, normalized_code)
@@ -144,15 +144,15 @@ MODE OPTIONS:
             else:  # after (default)
                 # Insert after line
                 new_lines.insert(line_number, normalized_code)
-            
+
             # Create new content
             new_content = '\n'.join(new_lines)
-            
+
             # Validate syntax before writing
             validation = SyntaxChecker.validate_modification(
                 file_path, original_content, new_content
             )
-            
+
             if validation["should_rollback"]:
                 return syntax_error_response(
                     validation["error"],
@@ -161,7 +161,7 @@ MODE OPTIONS:
                     original_content=original_content,
                     modified_content=new_content
                 )
-            
+
             # Request approval if approval manager is present
             if self.approval:
                 approved = self.approval.request_approval(
@@ -175,18 +175,18 @@ MODE OPTIONS:
                         "lines_added": len(normalized_code.split('\n'))
                     }
                 )
-                
+
                 if not approved:
                     return {
                         "error": "Change rejected by user",
                         "rejected": True,
                         "path": str(file_path)
                     }
-            
+
             # Write file
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(new_content)
-            
+
             # Record undo snapshot
             if self.undo_manager:
                 self.undo_manager.snapshot_operation(
@@ -196,7 +196,7 @@ MODE OPTIONS:
                     new_content=new_content,
                     description=f"Inserted at line {line_number} in {file_path.name}"
                 )
-            
+
             return {
                 "success": True,
                 "path": str(file_path),
@@ -206,6 +206,6 @@ MODE OPTIONS:
                 "indentation_applied": f"{indent_count} {'spaces' if ' ' in indent_str else 'tabs'}",
                 "total_lines": len(new_lines)
             }
-            
+
         except Exception as e:
             return {"error": str(e)}
