@@ -20,8 +20,8 @@ class NaturalLanguageParser:
         """Initialize parser with intent patterns."""
         # Pattern format: (regex_pattern, command, extract_args_function)
         self.patterns = [
-            # Help & Info
-            (r'\b(help|how do i|what can you do)\b', '/help', None),
+            # Help & Info (MUST be at start of sentence to avoid false positives)
+            (r'^(help|how do i|what can you do|show help)\b', '/help', None),
             (r'\b(show|view|display|see|check)\s+(the\s+)?(current\s+)?model\b', '/model', None),
 
             # History & Memory

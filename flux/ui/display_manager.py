@@ -30,40 +30,21 @@ class DisplayManager:
         session_summary: Optional[str],
         current_task: Optional[str]
     ):
-        """Print Flux startup banner."""
-        banner = Text()
-        banner.append("╔═══════════════════════════════╗\n", style="bold blue")
-        banner.append("║   ", style="bold blue")
-        banner.append("FLUX", style="bold cyan")
-        banner.append(" - AI Dev Assistant   ║\n", style="bold blue")
-        banner.append("╚═══════════════════════════════╝", style="bold blue")
-        self.console.print(banner)
-        self.console.print(f"Working directory: [cyan]{cwd}[/cyan]")
-        self.console.print(f"Provider: [cyan]{config.provider}[/cyan]")
-        self.console.print(f"Model: [cyan]{config.model}[/cyan]")
-
-        # Show project info if detected
-        if project_info:
-            self.console.print(
-                f"Project: [green]{project_info.name}[/green] "
-                f"([cyan]{project_info.project_type}[/cyan])"
-            )
-            if project_info.frameworks:
-                self.console.print(f"Tech: [dim]{', '.join(project_info.frameworks)}[/dim]")
-
-        # Show session summary if available
+        """Print minimal Flux startup banner."""
+        # Simple, fast startup - just the essentials
+        project_name = project_info.name if project_info else cwd.name
+        self.console.print(f"[bold cyan]Flux[/bold cyan] • {project_name}")
+        
+        # Show session context if resuming
         if session_summary:
-            self.console.print("\n" + session_summary)
-
-        # Show current task (legacy)
-        if current_task and not session_summary:
-            self.console.print(f"Task: [yellow]{current_task}[/yellow]")
-
+            self.console.print(f"[dim]{session_summary}[/dim]")
+        
         self.console.print()
 
     def print_help_text(self):
         """Print help text for starting session."""
-        self.console.print("[dim]Type 'exit' or 'quit' to exit[/dim]\n")
+        # Skip help text - users know how to exit
+        pass
 
     def prompt_user(self, enable_paste_mode: bool = True) -> str:
         """Get user input."""

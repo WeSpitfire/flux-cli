@@ -196,6 +196,120 @@ class OpenAIProvider(BaseLLMProvider):
             "role": "user",
             "content": f"[tool_result: {tool_use_id}]"
         })
+    
+    async def continue_with_tool_results(
+        self,
+        system_prompt: str,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Continue conversation after tool results have been added.
+        
+        For OpenAI, the tool results have already been added to self.messages,
+        so we just need to send a continuation request.
+        """
+        # Build messages list
+        messages = []
+        
+        # Add system prompt
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        
+        # Add all conversation history (includes tool results)
+        messages.extend(self.messages)
+        
+        # Build request
+        request_args = {
+            "model": self.config.model,
+            "messages": messages,
+            "max_tokens": self.config.max_tokens,
+            "temperature": self.config.temperature,
+            "stream": True,
+        }
+        
+        if tools:
+            request_args["tools"] = self._convert_tools_to_openai_format(tools)
+        
+        # Track response
+        full_response = ""
+        tool_calls = {}
+        
+        # Stream response
+        stream = await self.client.chat.completions.create(**request_args)
+        
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            
+            choice = chunk.choices[0]
+            delta = choice.delta
+            
+            # Handle text content
+            if delta.content:
+                full_response += delta.content
+                yield {"type": "text", "content": delta.content}
+            
+            # Handle tool calls
+            if delta.tool_calls:
+                for tool_call_delta in delta.tool_calls:
+                    idx = tool_call_delta.index
+                    
+                    if idx not in tool_calls:
+                        tool_calls[idx] = {
+                            "id": tool_call_delta.id or "",
+                            "name": "",
+                            "arguments": ""
+                        }
+                    
+                    if tool_call_delta.id:
+                        tool_calls[idx]["id"] = tool_call_delta.id
+                    
+                    if tool_call_delta.function:
+                        if tool_call_delta.function.name:
+                            tool_calls[idx]["name"] = tool_call_delta.function.name
+                        if tool_call_delta.function.arguments:
+                            tool_calls[idx]["arguments"] += tool_call_delta.function.arguments
+        
+        # Track token usage
+        if hasattr(chunk, 'usage') and chunk.usage:
+            self.total_input_tokens += chunk.usage.prompt_tokens
+            self.total_output_tokens += chunk.usage.completion_tokens
+        
+        # Emit complete tool calls
+        for idx in sorted(tool_calls.keys()):
+            tool_call = tool_calls[idx]
+            try:
+                arguments = json.loads(tool_call["arguments"])
+            except json.JSONDecodeError:
+                arguments = {}
+            
+            yield {
+                "type": "tool_use",
+                "id": tool_call["id"],
+                "name": tool_call["name"],
+                "input": arguments
+            }
+        
+        # Update conversation history
+        assistant_message = {"role": "assistant"}
+        if full_response:
+            assistant_message["content"] = full_response
+        
+        if tool_calls:
+            assistant_message["tool_calls"] = [
+                {
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tc["name"],
+                        "arguments": tc["arguments"]
+                    }
+                }
+                for tc in tool_calls.values()
+            ]
+        
+        self.messages.append(assistant_message)
+        self.conversation_history.append({"role": "assistant", "content": full_response or "[tool_calls]"})
 
     def clear_history(self):
         """Clear conversation history."""

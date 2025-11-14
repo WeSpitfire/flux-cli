@@ -18,8 +18,12 @@ class SessionManager {
       this.saveSession();
     });
     
-    // Restore previous session
-    this.restoreSession();
+    // DISABLED: Auto-restore was causing tabs to reopen after closing the app
+    // Users found this annoying - starting fresh is better
+    // this.restoreSession();
+    
+    // Clear any old sessions on startup for a clean slate
+    this.clearSession();
   }
 
   // Start auto-save with debouncing

@@ -188,6 +188,48 @@ class ConversationManager:
             # Continue conversation with tool results
             if not self.cli._processing_cancelled:
                 await self.continue_after_tools()
+        
+        # UX Differentiators - learn and snapshot after successful query
+        try:
+            # Smart Context: Learn from this conversation
+            self.cli.smart_context.learn_from_conversation(
+                topic=query[:100],
+                user_message=query,
+                assistant_message=response_text,
+                entities_mentioned=files_mentioned
+            )
+            
+            # Learn from any files that were modified
+            for file_path in files_mentioned:
+                try:
+                    from pathlib import Path
+                    full_path = self.cli.cwd / file_path
+                    if full_path.exists() and full_path.suffix == '.py':
+                        content = full_path.read_text()
+                        self.cli.smart_context.learn_from_code(str(file_path), content, "python")
+                except Exception:
+                    pass
+            
+            # Save knowledge graph
+            self.cli.smart_context.save()
+            
+            # Time Machine: Create auto-snapshot if it's time
+            if self.cli.time_machine.should_auto_snapshot():
+                try:
+                    snapshot = self.cli.time_machine.create_snapshot(
+                        description="Auto-snapshot",
+                        git=self.cli.git,
+                        llm=self.cli.llm,
+                        memory=self.cli.memory,
+                        workspace=self.cli.workspace,
+                        state_tracker=self.cli.state_tracker
+                    )
+                    self.cli.console.print(f"[dim]⏰ Auto-snapshot created: {snapshot.snapshot_id[:12]}[/dim]")
+                except Exception:
+                    pass  # Don't fail the conversation if snapshot fails
+        except Exception:
+            # Don't fail the conversation if UX features fail
+            pass
 
     async def execute_tool(self, tool_use: dict):
         """Execute a tool and display results.
@@ -421,9 +463,9 @@ class ConversationManager:
             if retry_context:
                 system_prompt += retry_context
 
-            # Send continuation message to get LLM's response to tool results
-            async for event in self.cli.llm.send_message(
-                message="continue",
+            # Continue conversation with tool results (no new message needed)
+            # The tool results have already been added to conversation history
+            async for event in self.cli.llm.continue_with_tool_results(
                 system_prompt=system_prompt,
                 tools=self.cli.tools.get_all_schemas()
             ):

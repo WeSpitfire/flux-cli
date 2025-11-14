@@ -64,6 +64,29 @@ class BaseLLMProvider(ABC):
             result: Result of the tool execution
         """
         pass
+    
+    @abstractmethod
+    async def continue_with_tool_results(
+        self,
+        system_prompt: str,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Continue conversation after tool results have been added.
+        
+        This method does NOT add a new user message - it assumes tool results
+        have already been added to conversation_history via add_tool_result().
+        
+        Args:
+            system_prompt: System prompt for context
+            tools: Optional list of tools available to the LLM
+        
+        Yields:
+            Events in format:
+            - {"type": "text", "content": str}  # Text response chunks
+            - {"type": "tool_use", "id": str, "name": str, "input": dict}  # Tool calls
+        """
+        pass
 
     @abstractmethod
     def clear_history(self):

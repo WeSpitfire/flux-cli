@@ -108,13 +108,23 @@ class ContextManager:
                         pruned.append(summary_msg)
                         pruned_tokens += summary_tokens
 
-        # Sort back to chronological order
-        # Create index mapping
-        original_indices = {id(msg): i for i, msg in enumerate(history)}
-        pruned.sort(key=lambda m: original_indices.get(id(m), len(history)))
+        # Sort back to chronological order using stable indices
+        # Tag each message with its original index BEFORE any modifications
+        for i, msg in enumerate(history):
+            msg['_original_idx'] = i
+        
+        for msg in pruned:
+            if '_original_idx' not in msg:
+                # Find this message in original list
+                for i, orig_msg in enumerate(history):
+                    if msg is orig_msg:
+                        msg['_original_idx'] = i
+                        break
+        
+        # Sort by original index
+        pruned.sort(key=lambda m: m.get('_original_idx', len(history)))
 
-        # IMPORTANT: For OpenAI, ensure tool_calls and tool results stay paired
-        # If we have a 'tool' message, make sure its preceding assistant message with tool_calls is kept
+        # IMPORTANT: Ensure tool_use/tool_result pairs stay together
         pruned = self._ensure_tool_pairs(pruned, history)
 
         return pruned
@@ -202,16 +212,16 @@ class ContextManager:
         )
 
     def _ensure_tool_pairs(self, pruned: List[Dict[str, Any]], original: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Ensure tool_calls and tool results stay paired for OpenAI.
+        """Ensure tool use/result pairs stay together.
 
-        OpenAI requires that:
-        - A message with 'tool_calls' must be followed by 'tool' role messages for EACH tool_call_id
-        - 'tool' role messages must follow a message with 'tool_calls'
+        Both OpenAI and Anthropic require tool use/result pairing:
+        - OpenAI: assistant with 'tool_calls' → tool role messages
+        - Anthropic: assistant with tool_use content → user with tool_result content
 
         This method ensures complete pairs are kept or removed together.
 
         Args:
-            pruned: Pruned message list
+            pruned: Pruned message list (with _original_idx tags)
             original: Original message list
 
         Returns:
@@ -219,9 +229,72 @@ class ContextManager:
         """
         if not pruned:
             return pruned
-
-        original_indices = {id(msg): i for i, msg in enumerate(original)}
-
+        
+        # Detect API format (OpenAI vs Anthropic)
+        uses_anthropic_format = any(
+            isinstance(msg.get('content'), list) and 
+            any(block.get('type') == 'tool_use' for block in msg.get('content', []) if isinstance(block, dict))
+            for msg in original
+        )
+        
+        if uses_anthropic_format:
+            return self._ensure_anthropic_tool_pairs(pruned, original)
+        else:
+            return self._ensure_openai_tool_pairs(pruned, original)
+    
+    def _ensure_anthropic_tool_pairs(self, pruned: List[Dict[str, Any]], original: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Ensure Anthropic tool_use/tool_result pairs stay together."""
+        # Find all tool_use blocks in assistant messages
+        tool_use_ids_in_pruned = set()
+        for msg in pruned:
+            if msg.get('role') == 'assistant' and isinstance(msg.get('content'), list):
+                for block in msg.get('content', []):
+                    if isinstance(block, dict) and block.get('type') == 'tool_use':
+                        tool_use_ids_in_pruned.add(block.get('id'))
+        
+        # Find all tool_result blocks in user messages
+        tool_result_ids_in_pruned = set()
+        for msg in pruned:
+            if msg.get('role') == 'user' and isinstance(msg.get('content'), list):
+                for block in msg.get('content', []):
+                    if isinstance(block, dict) and block.get('type') == 'tool_result':
+                        tool_result_ids_in_pruned.add(block.get('tool_use_id'))
+        
+        # Remove assistant messages with tool_use if their tool_result is missing
+        # Remove user messages with tool_result if their tool_use is missing
+        final = []
+        for msg in pruned:
+            keep_message = True
+            
+            if msg.get('role') == 'assistant' and isinstance(msg.get('content'), list):
+                # Check if all tool_use blocks have corresponding tool_result
+                tool_uses_in_msg = [
+                    block.get('id') for block in msg.get('content', [])
+                    if isinstance(block, dict) and block.get('type') == 'tool_use'
+                ]
+                if tool_uses_in_msg:
+                    # Only keep if ALL tool_uses have results
+                    if not all(tid in tool_result_ids_in_pruned for tid in tool_uses_in_msg):
+                        keep_message = False
+            
+            elif msg.get('role') == 'user' and isinstance(msg.get('content'), list):
+                # Check if this is a tool_result message
+                tool_results_in_msg = [
+                    block.get('tool_use_id') for block in msg.get('content', [])
+                    if isinstance(block, dict) and block.get('type') == 'tool_result'
+                ]
+                if tool_results_in_msg:
+                    # Only keep if the corresponding tool_use exists
+                    if not all(tid in tool_use_ids_in_pruned for tid in tool_results_in_msg):
+                        keep_message = False
+            
+            if keep_message:
+                final.append(msg)
+        
+        return final
+    
+    def _ensure_openai_tool_pairs(self, pruned: List[Dict[str, Any]], original: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Ensure OpenAI tool_calls/tool pairs stay together."""
         # Build a set of tool_call_ids that have responses in pruned list
         tool_responses_present = set()
         for msg in pruned:
@@ -242,7 +315,7 @@ class ContextManager:
 
                 if missing_responses:
                     # Find the missing tool responses in original history
-                    msg_idx = original_indices.get(id(msg))
+                    msg_idx = msg.get('_original_idx')
                     if msg_idx is not None:
                         # Look forward for tool messages with these IDs
                         for i in range(msg_idx + 1, len(original)):
@@ -257,8 +330,11 @@ class ContextManager:
                                 break
 
         # Add missing messages in chronological order
+        # Tag newly added messages with their original index
+        for orig_idx, msg in messages_to_add:
+            msg['_original_idx'] = orig_idx
         combined = pruned + [msg for _, msg in messages_to_add]
-        combined.sort(key=lambda m: original_indices.get(id(m), len(original)))
+        combined.sort(key=lambda m: m.get('_original_idx', len(original)))
 
         # Now remove any incomplete pairs
         # If assistant has tool_calls but not ALL responses, remove both

@@ -20,9 +20,9 @@ class Config:
     openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
 
     # LLM Settings
-    model: str = field(default_factory=lambda: os.getenv("FLUX_MODEL", "claude-3-5-sonnet-20240620"))
-    max_tokens: int = field(default_factory=lambda: int(os.getenv("FLUX_MAX_TOKENS", "4096")))
-    max_history: int = 8000  # Default value, can be overridden by CLI argument
+    model: str = field(default_factory=lambda: os.getenv("FLUX_MODEL", "claude-3-5-sonnet-20241022"))
+    max_tokens: int = field(default_factory=lambda: int(os.getenv("FLUX_MAX_TOKENS", "8192")))
+    max_history: int = 50000  # Updated for 200K models - can be overridden by CLI argument
     temperature: float = field(default_factory=lambda: float(os.getenv("FLUX_TEMPERATURE", "0.0")))
 
     # Paths
@@ -74,13 +74,15 @@ class Config:
 
         elif "sonnet" in model_lower:
             # Sonnet: 200K context, can be much more generous
-            # Use defaults (8K history, 150K context) or user overrides
-            pass
+            # Updated to use more of available context
+            if self.max_history < 50000:
+                self.max_history = 50000
+            self.max_context_tokens = 150000
 
         elif "opus" in model_lower:
             # Opus: 200K context, very generous
-            if self.max_history < 10000:
-                self.max_history = 10000
+            if self.max_history < 50000:
+                self.max_history = 50000
             self.max_context_tokens = 180000
 
         elif "gpt" in model_lower:

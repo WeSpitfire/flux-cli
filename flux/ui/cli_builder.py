@@ -198,7 +198,37 @@ class CLIBuilder:
         from flux.core.session_task_manager import SessionTaskManager
         cli.session_task_mgr = SessionTaskManager(cli)
         
+        # Integrate performance improvements
+        from flux.core.performance_integration import integrate_performance_improvements
+        cli.performance = integrate_performance_improvements(cli)
+        
         from flux.core.autofix_manager import AutoFixManager
         cli.autofix_mgr = AutoFixManager(cli)
+        
+        # Initialize UX Differentiators
+        from flux.core.copilot_engine import CopilotEngine
+        from flux.core.time_machine import TimeMachine
+        from flux.core.smart_context import ProjectKnowledgeGraph
+        
+        # Copilot Mode - proactive monitoring
+        cli.copilot = CopilotEngine(
+            cwd=cwd,
+            state_tracker=cli.state_tracker,
+            git=cli.git,
+            test_runner=cli.test_runner,
+            llm=cli.llm
+        )
+        cli.copilot.add_notification_callback(cli._print_copilot_suggestion)
+        
+        # Time Machine - state snapshots
+        cli.time_machine = TimeMachine(
+            flux_dir=config.flux_dir,
+            cwd=cwd
+        )
+        
+        # Smart Context - knowledge graph
+        cli.smart_context = ProjectKnowledgeGraph(
+            flux_dir=config.flux_dir
+        )
         
         return cli

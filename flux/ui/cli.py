@@ -34,14 +34,12 @@ class CLI:
 
         self._graph_building = True
         try:
-            self.console.print("[dim]Building codebase graph...[/dim]")
+            # Build graph silently in background - no UI spam
             self.codebase_graph = CodebaseGraph(self.cwd)
             self.codebase_graph.build_graph(max_files=500)  # Limit for performance
 
-            # Show architecture detection results
-            patterns = self.codebase_graph.detect_architecture_patterns()
-            if patterns.get('framework'):
-                self.console.print(f"[dim]Detected: {patterns['framework']} ({patterns['structure']} structure)[/dim]")
+            # Skip architecture announcement - not needed on every startup
+            # patterns = self.codebase_graph.detect_architecture_patterns()
 
             # Auto-read README for project understanding
             self._project_readme = await self._load_readme()
@@ -110,8 +108,15 @@ class CLI:
         """Run interactive REPL mode."""
         self.print_banner()
 
-        # Smart auto-initialization based on project context
-        await auto_initialize(self)
+        # Skip auto-initialization - user can trigger manually if needed
+        # await auto_initialize(self)
+        
+        # Disable noisy background features on startup
+        # import asyncio
+        # asyncio.create_task(self.copilot.start_monitoring())  # Disabled - too noisy
+        
+        # Enable auto-snapshot (will create snapshots every 5 minutes)
+        self.time_machine.auto_snapshot_enabled = True
 
         # Multi-line compose state (disabled if not truly interactive)
         import sys
@@ -124,9 +129,9 @@ class CLI:
 
         while True:
             try:
-                # Show contextual suggestions before prompt (only in interactive mode)
-                if self._enable_paste_mode:
-                    self._maybe_show_suggestions()
+                # Disable suggestion spam - let user focus on work
+                # if self._enable_paste_mode:
+                #     self._maybe_show_suggestions()
 
                 # Auto-clear context when it gets too full (invisible to user)
                 # CRITICAL FIX: Check conversation history size, NOT cumulative API usage!
@@ -333,6 +338,32 @@ class CLI:
             # Legacy string format - convert to dict
             notification = {'message': notification, 'type': 'info', 'title': '💡 Notification'}
         self.display.print_monitor_notification(notification)
+    
+    def _print_copilot_suggestion(self, suggestion):
+        """Callback for Copilot suggestions."""
+        from rich.panel import Panel
+        
+        priority_emoji = {
+            'critical': '🔴',
+            'high': '🟠',
+            'medium': '🟡',
+            'low': '🟢'
+        }.get(suggestion.priority.value, '⚪')
+        
+        message = f"{priority_emoji} [bold]{suggestion.title}[/bold]\n"
+        message += f"{suggestion.description}\n\n"
+        message += f"[dim]→ {suggestion.action_prompt}[/dim]"
+        if suggestion.auto_fixable:
+            message += "\n[green]✓ Auto-fixable[/green]"
+        
+        self.console.print(Panel(
+            message,
+            title="🤖 Flux Copilot",
+            border_style="magenta",
+            width=80
+        ))
+        
+        self.console.print(f"[dim]Use /copilot to see all suggestions, /copilot-dismiss {suggestion.id[:8]} to dismiss[/dim]")
 
     def _maybe_show_suggestions(self):
         """Show smart suggestions if there are any relevant ones.

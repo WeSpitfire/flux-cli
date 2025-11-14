@@ -175,20 +175,22 @@ ON ERROR: Use list_files or find_files to discover correct paths."""
             line_range: Optional dict with 'start' and 'end' keys for line range
             summarize: If True, return file summary instead of full content
         """
+        import asyncio
+        
         results = {}
-
-        for path_str in paths:
+        
+        # Read files in parallel for performance
+        async def read_single_file(path_str: str) -> Tuple[str, Dict[str, Any]]:
             # Validate path first
             is_valid, error_msg = validate_file_path(path_str, self.cwd, "read")
             if not is_valid:
-                results[path_str] = {
+                return path_str, {
                     "error": {
                         "code": "INVALID_PATH",
                         "message": error_msg,
                         "path": path_str
                     }
                 }
-                continue
 
             try:
                 path = Path(path_str)
@@ -202,12 +204,10 @@ ON ERROR: Use list_files or find_files to discover correct paths."""
                         similar = [str(f.relative_to(self.cwd)) for f in parent.glob('*') if f.is_file()][:5]
                     except:
                         similar = None
-                    results[path_str] = file_not_found_error(path_str, similar)
-                    continue
+                    return path_str, file_not_found_error(path_str, similar)
 
                 if not path.is_file():
-                    results[path_str] = {"error": "Path is not a file"}
-                    continue
+                    return path_str, {"error": "Path is not a file"}
 
                 # Handle selective reading modes
                 content = None
@@ -303,15 +303,23 @@ This file has {lines_count} lines, which is too large to read at once.
                 # Count lines in content
                 lines_count = content.count('\n') if content else 0
 
-                results[path_str] = {
+                return path_str, {
                     "content": content,
                     "lines": lines_count,
                     "mode": mode,
                     "cached": cached_content is not None if 'cached_content' in locals() else False
                 }
             except Exception as e:
-                results[path_str] = {"error": str(e)}
-
+                return path_str, {"error": str(e)}
+        
+        # Execute reads in parallel
+        tasks = [read_single_file(path) for path in paths]
+        results_list = await asyncio.gather(*tasks)
+        
+        # Convert to dict
+        for path_str, result in results_list:
+            results[path_str] = result
+        
         return results
 
 

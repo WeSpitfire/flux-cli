@@ -1,6 +1,6 @@
 """Codebase analyzer - handles codebase analysis and architecture inspection."""
 
-from flux.core.suggestions_engine import Priority
+from flux.core.suggestions import Priority
 
 
 class CodebaseAnalyzer:

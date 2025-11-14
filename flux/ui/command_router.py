@@ -105,6 +105,30 @@ class CommandRouter:
             '/autofix-watch': self.handle_autofix_watch,
             '/autofix-watch-stop': self.handle_autofix_watch_stop,
             '/autofix-stats': self.handle_autofix_stats,
+            
+            # UX Differentiators
+            # Copilot Mode
+            '/copilot': self.handle_copilot,
+            '/copilot-status': self.handle_copilot_status,
+            '/copilot-dismiss': self.handle_copilot_dismiss,
+            '/copilot-on': self.handle_copilot_on,
+            '/copilot-off': self.handle_copilot_off,
+            
+            # Time Machine
+            '/snapshot': self.handle_snapshot,
+            '/snapshots': self.handle_snapshots,
+            '/restore': self.handle_restore,
+            '/compare': self.handle_compare,
+            '/timeline': self.handle_timeline,
+            
+            # Smart Context
+            '/learn': self.handle_learn,
+            '/context': self.handle_context,
+            '/knowledge': self.handle_knowledge,
+            '/patterns': self.handle_patterns,
+            
+            # Onboarding
+            '/guide': self.handle_guide,
         }
 
     async def handle(self, query: str) -> bool:
@@ -193,6 +217,7 @@ class CommandRouter:
             "  [dim]• 'what's happening' → /state[/dim]\n"
             "\n[bold cyan]General:[/bold cyan]\n"
             "  [green]/help[/green] - Show this help message\n"
+            "  [green]/guide[/green] - Interactive walkthrough for new users\n"
             "  [green]/model[/green] - Show current provider and model\n"
             "  [green]/history[/green] - Show conversation history summary\n"
             "  [green]/clear[/green] - Clear conversation history\n"
@@ -239,6 +264,15 @@ class CommandRouter:
             "  [green]/debug-off[/green] - Disable debug logging\n"
             "  [green]/debug[/green] - Show debug session summary\n"
             "  [green]/inspect[/green] - Inspect conversation state\n"
+            "\n[bold magenta]✨ UX Differentiators:[/bold magenta]\n"
+            "  [green]/copilot[/green] - Show proactive suggestions\n"
+            "  [green]/copilot-status[/green] - Show Copilot monitoring status\n"
+            "  [green]/snapshot[/green] - Create manual snapshot\n"
+            "  [green]/snapshots[/green] - List all snapshots\n"
+            "  [green]/restore <id>[/green] - Restore from snapshot\n"
+            "  [green]/timeline[/green] - Show Time Machine status\n"
+            "  [green]/knowledge[/green] - Show knowledge graph stats\n"
+            "  [green]/context <query>[/green] - Get relevant context\n"
         )
 
         self.cli.console.print(Panel(help_text, title="Help", border_style="blue"))
@@ -703,3 +737,377 @@ class CommandRouter:
             self.cli.console.print(Panel(stats_text, title="📊 Auto-Fix Watch Stats", border_style="blue"))
         else:
             self.cli.display.print_warning("Auto-fix watch not started. Use /autofix-watch to start.")
+    
+    # ============================================
+    # UX DIFFERENTIATOR COMMANDS
+    # ============================================
+    
+    # Copilot Mode commands
+    async def handle_copilot(self, args: Optional[str]):
+        """Handle /copilot command - show current suggestions."""
+        from rich.panel import Panel
+        suggestions = self.cli.copilot.get_suggestions()
+        
+        if not suggestions:
+            self.cli.display.print_success("✨ Flux Copilot is monitoring your project")
+            self.cli.display.print_dim("No suggestions at the moment - everything looks good!")
+            return
+        
+        output = "[bold]🤖 Flux Copilot Suggestions:[/bold]\n\n"
+        
+        for i, sug in enumerate(suggestions, 1):
+            priority_emoji = {
+                'critical': '🔴',
+                'high': '🟠',
+                'medium': '🟡',
+                'low': '🟢'
+            }.get(sug.priority.value, '⚪')
+            
+            output += f"{priority_emoji} [bold]{sug.title}[/bold]\n"
+            output += f"   {sug.description}\n"
+            output += f"   [dim]→ {sug.action_prompt}[/dim]\n"
+            if sug.auto_fixable:
+                output += f"   [green]✓ Auto-fixable[/green]\n"
+            output += f"   [dim]ID: {sug.id[:8]}[/dim]\n\n"
+        
+        self.cli.console.print(Panel(output, title="✨ Copilot Suggestions", border_style="magenta"))
+    
+    async def handle_copilot_status(self, args: Optional[str]):
+        """Handle /copilot-status command."""
+        from rich.panel import Panel
+        stats = self.cli.copilot.get_stats()
+        
+        status_text = (
+            f"Status: [{'green' if stats['monitoring'] else 'yellow'}]{'Active' if stats['monitoring'] else 'Inactive'}[/{'green' if stats['monitoring'] else 'yellow'}]\n"
+            f"Current suggestions: [cyan]{stats['suggestion_count']}[/cyan]\n"
+            f"Total generated: [cyan]{stats['total_generated']}[/cyan]\n"
+            f"Dismissed: [dim]{stats['dismissed_count']}[/dim]\n\n"
+            f"[bold]Last check:[/bold]\n"
+            f"  Git: {stats['last_git_check'] or 'Never'}\n"
+            f"  Tests: {stats['last_test_check'] or 'Never'}\n"
+            f"  Code quality: {stats['last_quality_check'] or 'Never'}\n"
+        )
+        
+        self.cli.console.print(Panel(status_text, title="🤖 Copilot Status", border_style="magenta"))
+    
+    async def handle_copilot_dismiss(self, args: Optional[str]):
+        """Handle /copilot-dismiss command."""
+        if not args:
+            self.cli.display.print_error("Please provide suggestion ID")
+            self.cli.display.print_dim("Usage: /copilot-dismiss <id>")
+            return
+        
+        success = self.cli.copilot.dismiss_suggestion(args)
+        if success:
+            self.cli.display.print_success(f"✓ Dismissed suggestion {args[:8]}")
+        else:
+            self.cli.display.print_error(f"Suggestion {args} not found")
+    
+    async def handle_copilot_on(self, args: Optional[str]):
+        """Handle /copilot-on command."""
+        import asyncio
+        if not self.cli.copilot.monitoring:
+            asyncio.create_task(self.cli.copilot.start_monitoring())
+            self.cli.display.print_success("✓ Flux Copilot started")
+            self.cli.display.print_dim("Monitoring your project for improvements...")
+        else:
+            self.cli.display.print_dim("Copilot is already running")
+    
+    async def handle_copilot_off(self, args: Optional[str]):
+        """Handle /copilot-off command."""
+        await self.cli.copilot.stop_monitoring()
+        self.cli.display.print_warning("Flux Copilot stopped")
+    
+    # Time Machine commands
+    async def handle_snapshot(self, args: Optional[str]):
+        """Handle /snapshot command - create a snapshot."""
+        description = args if args else "Manual snapshot"
+        
+        try:
+            snapshot = self.cli.time_machine.create_snapshot(
+                description=description,
+                git=self.cli.git,
+                llm=self.cli.llm,
+                memory=self.cli.memory,
+                workspace=self.cli.workspace,
+                state_tracker=self.cli.state_tracker
+            )
+            
+            self.cli.display.print_success(f"✓ Snapshot created: {snapshot.snapshot_id}")
+            self.cli.display.print_dim(f"  {description}")
+            if snapshot.git_commit:
+                self.cli.display.print_dim(f"  Git: {snapshot.git_commit[:8]} on {snapshot.git_branch}")
+            self.cli.display.print_dim(f"  {len(snapshot.modified_files)} modified files backed up")
+        except Exception as e:
+            self.cli.display.print_error(f"Failed to create snapshot: {e}")
+    
+    async def handle_snapshots(self, args: Optional[str]):
+        """Handle /snapshots command - list snapshots."""
+        from rich.panel import Panel
+        from rich.table import Table
+        
+        limit = 20
+        if args:
+            try:
+                limit = int(args)
+            except ValueError:
+                pass
+        
+        snapshots = self.cli.time_machine.list_snapshots(limit=limit)
+        
+        if not snapshots:
+            self.cli.display.print_dim("No snapshots yet")
+            self.cli.display.print_dim("Create one with /snapshot <description>")
+            return
+        
+        table = Table(title="⏰ Time Machine Snapshots", show_header=True)
+        table.add_column("ID", style="dim")
+        table.add_column("Time")
+        table.add_column("Description")
+        table.add_column("Git", style="cyan")
+        table.add_column("Files", justify="right")
+        
+        for snap in snapshots:
+            table.add_row(
+                snap.snapshot_id[:12],
+                snap.get_display_time(),
+                snap.description[:40],
+                f"{snap.git_branch or '-'}" if snap.git_branch else "-",
+                str(len(snap.modified_files))
+            )
+        
+        self.cli.console.print(table)
+        self.cli.display.print_dim(f"\nShowing {len(snapshots)} snapshots (use /restore <id> to restore)")
+    
+    async def handle_restore(self, args: Optional[str]):
+        """Handle /restore command - restore from snapshot."""
+        if not args:
+            self.cli.display.print_error("Please provide snapshot ID")
+            self.cli.display.print_dim("Usage: /restore <snapshot_id> [--files]")
+            return
+        
+        # Parse args
+        parts = args.split()
+        snapshot_id = parts[0]
+        restore_files = '--files' in parts
+        
+        # Get snapshot
+        snapshot = self.cli.time_machine.get_snapshot(snapshot_id)
+        if not snapshot:
+            self.cli.display.print_error(f"Snapshot {snapshot_id} not found")
+            return
+        
+        # Confirm if restoring files
+        if restore_files:
+            from rich.prompt import Confirm
+            confirm = Confirm.ask(
+                f"⚠️  This will restore {len(snapshot.modified_files)} files. Continue?",
+                default=False
+            )
+            if not confirm:
+                self.cli.display.print_dim("Cancelled")
+                return
+        
+        # Restore
+        try:
+            success = self.cli.time_machine.restore_snapshot(
+                snapshot_id=snapshot_id,
+                llm=self.cli.llm,
+                memory=self.cli.memory,
+                restore_files=restore_files
+            )
+            
+            if success:
+                self.cli.display.print_success(f"✓ Restored from {snapshot.get_display_time()}")
+                self.cli.display.print_dim(f"  {snapshot.description}")
+                if restore_files:
+                    self.cli.display.print_dim(f"  {len(snapshot.modified_files)} files restored")
+                else:
+                    self.cli.display.print_dim("  Conversation and memory restored (use --files to restore files)")
+            else:
+                self.cli.display.print_error("Failed to restore snapshot")
+        except Exception as e:
+            self.cli.display.print_error(f"Restore failed: {e}")
+    
+    async def handle_compare(self, args: Optional[str]):
+        """Handle /compare command - compare two snapshots."""
+        if not args:
+            self.cli.display.print_error("Please provide two snapshot IDs")
+            self.cli.display.print_dim("Usage: /compare <snapshot_id1> <snapshot_id2>")
+            return
+        
+        parts = args.split()
+        if len(parts) < 2:
+            self.cli.display.print_error("Need two snapshot IDs")
+            return
+        
+        comparison = self.cli.time_machine.compare_snapshots(parts[0], parts[1])
+        
+        if not comparison:
+            self.cli.display.print_error("One or both snapshots not found")
+            return
+        
+        from rich.panel import Panel
+        output = (
+            f"Time difference: [cyan]{comparison['time_diff'] / 60:.1f}[/cyan] minutes\n"
+            f"Conversation messages: [cyan]{comparison['conversation_messages_diff']:+d}[/cyan]\n"
+            f"Files changed: [cyan]{comparison['files_changed']}[/cyan]\n"
+            f"Tasks difference: [cyan]{comparison['task_diff']:+d}[/cyan]\n"
+            f"Git commits differ: [{'yellow' if comparison['git_commits_diff'] else 'green'}]{comparison['git_commits_diff']}[/{'yellow' if comparison['git_commits_diff'] else 'green'}]\n"
+        )
+        
+        self.cli.console.print(Panel(output, title="📊 Snapshot Comparison", border_style="cyan"))
+    
+    async def handle_timeline(self, args: Optional[str]):
+        """Handle /timeline command - show Time Machine stats."""
+        from rich.panel import Panel
+        summary = self.cli.time_machine.get_summary()
+        
+        status_text = (
+            f"Auto-snapshot: [{'green' if summary['enabled'] else 'yellow'}]{'Enabled' if summary['enabled'] else 'Disabled'}[/{'green' if summary['enabled'] else 'yellow'}]\n"
+            f"Interval: [cyan]{summary['interval_minutes']}[/cyan] minutes\n"
+            f"Total snapshots: [cyan]{summary['total_snapshots']}[/cyan]\n"
+            f"Retention: [dim]{summary['max_snapshots']} snapshots or {summary['max_age_days']} days[/dim]\n\n"
+        )
+        
+        if summary['oldest_snapshot']:
+            status_text += f"[bold]Timeline:[/bold]\n"
+            status_text += f"  Oldest: {summary['oldest_snapshot']}\n"
+            status_text += f"  Newest: {summary['newest_snapshot']}\n"
+        
+        self.cli.console.print(Panel(status_text, title="⏰ Time Machine", border_style="blue"))
+    
+    # Smart Context commands
+    async def handle_learn(self, args: Optional[str]):
+        """Handle /learn command - learn from a file."""
+        if not args:
+            self.cli.display.print_error("Please provide a file path")
+            self.cli.display.print_dim("Usage: /learn <file_path>")
+            return
+        
+        from pathlib import Path
+        file_path = Path(args)
+        
+        if not file_path.exists():
+            self.cli.display.print_error(f"File not found: {args}")
+            return
+        
+        try:
+            content = file_path.read_text()
+            language = "python" if file_path.suffix == ".py" else "unknown"
+            
+            self.cli.smart_context.learn_from_code(str(file_path), content, language)
+            self.cli.smart_context.save()
+            
+            self.cli.display.print_success(f"✓ Learned from {args}")
+            stats = self.cli.smart_context.get_stats()
+            self.cli.display.print_dim(f"  Knowledge graph: {stats['total_entities']} entities, {stats['total_relationships']} relationships")
+        except Exception as e:
+            self.cli.display.print_error(f"Failed to learn: {e}")
+    
+    async def handle_context(self, args: Optional[str]):
+        """Handle /context command - get relevant context."""
+        if not args:
+            self.cli.display.print_error("Please provide a query")
+            self.cli.display.print_dim("Usage: /context <query>")
+            return
+        
+        from rich.panel import Panel
+        from rich.table import Table
+        
+        context = self.cli.smart_context.get_relevant_context(query=args, limit=10)
+        
+        if not context['entities']:
+            self.cli.display.print_dim("No relevant context found")
+            return
+        
+        # Show entities
+        table = Table(title="🧠 Relevant Entities", show_header=True)
+        table.add_column("Type", style="cyan")
+        table.add_column("Name", style="bold")
+        table.add_column("File", style="dim")
+        table.add_column("Access", justify="right")
+        
+        for entity in context['entities']:
+            table.add_row(
+                entity['type'],
+                entity['name'],
+                entity['file_path'][:40] if entity['file_path'] else "-",
+                str(entity['access_count'])
+            )
+        
+        self.cli.console.print(table)
+        
+        # Show relationships if any
+        if context['relationships']:
+            self.cli.display.print_dim(f"\nFound {len(context['relationships'])} relationships")
+        
+        # Show recent conversations
+        if context['conversations']:
+            self.cli.display.print_dim(f"Found {len(context['conversations'])} related past conversations")
+    
+    async def handle_knowledge(self, args: Optional[str]):
+        """Handle /knowledge command - show knowledge graph stats."""
+        from rich.panel import Panel
+        from rich.table import Table
+        
+        stats = self.cli.smart_context.get_stats()
+        
+        output = (
+            f"[bold]Knowledge Graph Statistics:[/bold]\n\n"
+            f"Total entities: [cyan]{stats['total_entities']}[/cyan]\n"
+            f"Total relationships: [cyan]{stats['total_relationships']}[/cyan]\n"
+            f"Conversations stored: [cyan]{stats['total_conversations']}[/cyan]\n"
+            f"Patterns registered: [cyan]{stats['total_patterns']}[/cyan]\n\n"
+        )
+        
+        if stats['entity_types']:
+            output += "[bold]Entity Types:[/bold]\n"
+            for entity_type, count in stats['entity_types'].items():
+                output += f"  {entity_type}: {count}\n"
+            output += "\n"
+        
+        if stats['relationship_types']:
+            output += "[bold]Relationship Types:[/bold]\n"
+            for rel_type, count in stats['relationship_types'].items():
+                output += f"  {rel_type}: {count}\n"
+        
+        self.cli.console.print(Panel(output, title="🧠 Smart Context", border_style="magenta"))
+        
+        # Show most accessed entities
+        if stats['most_accessed_entities']:
+            self.cli.display.print_dim("\n[bold]Most Accessed:[/bold]")
+            for entity in stats['most_accessed_entities'][:5]:
+                self.cli.display.print_dim(f"  • {entity['name']} ({entity['count']} times)")
+    
+    async def handle_patterns(self, args: Optional[str]):
+        """Handle /patterns command - show registered patterns."""
+        from rich.panel import Panel
+        
+        if not self.cli.smart_context.patterns:
+            self.cli.display.print_dim("No design patterns registered yet")
+            return
+        
+        output = "[bold]Registered Design Patterns:[/bold]\n\n"
+        
+        for pattern_name, entity_ids in self.cli.smart_context.patterns.items():
+            output += f"[cyan]{pattern_name}[/cyan]:\n"
+            output += f"  {len(entity_ids)} entities\n"
+            
+            # Show first 3 entities
+            for eid in entity_ids[:3]:
+                if eid in self.cli.smart_context.entities:
+                    entity = self.cli.smart_context.entities[eid]
+                    output += f"  • {entity.name}\n"
+            
+            if len(entity_ids) > 3:
+                output += f"  ... and {len(entity_ids) - 3} more\n"
+            output += "\n"
+        
+        self.cli.console.print(Panel(output, title="🎨 Design Patterns", border_style="yellow"))
+    
+    # Onboarding commands
+    async def handle_guide(self, args: Optional[str]):
+        """Handle /guide command - show interactive walkthrough."""
+        from flux.commands.guide import guide
+        guide(self.cli)

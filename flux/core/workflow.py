@@ -154,13 +154,17 @@ class WorkflowEnforcer:
         # Check if we're in UNDERSTAND stage and trying to modify
         if self.context.stage == WorkflowStage.UNDERSTAND:
             if operation in ["write_file", "edit_file", "ast_edit"]:
-                # Check if we've even read the target file
-                if not self.context.has_read_target_file(file_path):
-                    return {
-                        "allowed": False,
-                        "reason": f"Must read {file_path} before modifying it",
-                        "suggestions": [f"Read {file_path} first to understand its current content"]
-                    }
+                # For write_file on NEW files (that don't exist), skip the read check
+                file_exists = file_path.exists()
+                
+                # Check if we've even read the target file (but only for existing files being modified)
+                if operation in ["edit_file", "ast_edit"] and file_exists:
+                    if not self.context.has_read_target_file(file_path):
+                        return {
+                            "allowed": False,
+                            "reason": f"Must read {file_path} before modifying it",
+                            "suggestions": [f"Read {file_path} first to understand its current content"]
+                        }
 
                 # If we've read the file, auto-progress to EXECUTE
                 self.context.stage = WorkflowStage.EXECUTE

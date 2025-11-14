@@ -22,7 +22,7 @@ from flux.core.config import Config
 
 def print_config_info(config: Config):
     """Print configuration information."""
-    print("\n⚙️  Flux Configuration")
+    print("\n\033[1m\033[94m⚙️  Flux Configuration\033[0m")
     print("=" * 50)
     print(f"\n🤖 Model: {config.model}")
     print(f"📊 Max Tokens: {config.max_tokens}")
@@ -51,7 +51,7 @@ def main():
 
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
-        description="Flux - AI-powered development assistant",
+        description="Flux - The Ultimate AI-Powered Development Assistant",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
 

@@ -115,20 +115,8 @@ function initializeTerminalForTab(tabId, containerElement) {
     fitAddon.fit();
   }, 50);
   
-  // Welcome message with enhanced styling
-  terminal.writeln('');
-  terminal.writeln('\x1b[38;5;147m╭─────────────────────────────────────────────────────╮\x1b[0m');
-  terminal.writeln('\x1b[38;5;147m│\x1b[0m                                                     \x1b[38;5;147m│\x1b[0m');
-  terminal.writeln('\x1b[38;5;147m│\x1b[0m      \x1b[1;38;5;153m⚡ Flux AI Coding Assistant\x1b[0m                \x1b[38;5;147m│\x1b[0m');
-  terminal.writeln('\x1b[38;5;147m│\x1b[0m      \x1b[38;5;110mThe terminal that has your back\x1b[0m         \x1b[38;5;147m│\x1b[0m');
-  terminal.writeln('\x1b[38;5;147m│\x1b[0m                                                     \x1b[38;5;147m│\x1b[0m');
-  terminal.writeln('\x1b[38;5;147m╰─────────────────────────────────────────────────────╯\x1b[0m');
-  terminal.writeln('');
-  terminal.writeln('  \x1b[38;5;83m✓\x1b[0m \x1b[1mReady\x1b[0m - Ask Flux anything or type a command');
-  terminal.writeln('  \x1b[38;5;110mTip: Press \x1b[1;38;5;153mCmd+K\x1b[0m\x1b[38;5;110m for the command palette\x1b[0m');
-  terminal.writeln('');
-  terminal.writeln('\x1b[2m' + '─'.repeat(terminal.cols) + '\x1b[0m');
-  terminal.writeln('');
+  // Simple, fast startup message
+  terminal.writeln('\x1b[38;5;110mFlux ready.\x1b[0m Type your question or command below.');
   
   // Store terminal instance
   terminals.set(tabId, {

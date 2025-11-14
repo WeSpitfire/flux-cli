@@ -1,6 +1,7 @@
 """Anthropic provider implementation for Claude models."""
 
 import json
+import sys
 from typing import List, Dict, Any, AsyncIterator, Optional
 from anthropic import AsyncAnthropic
 from anthropic.types import MessageStreamEvent, ContentBlock, ToolUseBlock, TextBlock
@@ -73,6 +74,12 @@ class AnthropicProvider(BaseLLMProvider):
                 )
                 self.pruning_stats.append(stats)
                 messages_to_send = pruned_history
+        
+        # Clean internal tracking fields before sending to API
+        messages_to_send = [
+            {k: v for k, v in msg.items() if k != '_original_idx'}
+            for msg in messages_to_send
+        ]
 
         # Build request
         request_args = {
@@ -166,6 +173,143 @@ class AnthropicProvider(BaseLLMProvider):
             "role": "assistant",
             "content": final_message.content
         })
+    
+    async def continue_with_tool_results(
+        self,
+        system_prompt: str,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Continue conversation after tool results have been added.
+        
+        This method does NOT add a new user message - it assumes tool results
+        have already been added to conversation_history via add_tool_result().
+        
+        Yields events:
+        - {"type": "text", "content": str}
+        - {"type": "tool_use", "id": str, "name": str, "input": dict}
+        """
+        # Apply context pruning if enabled
+        messages_to_send = self.conversation_history
+        if self.enable_context_pruning and len(self.conversation_history) > 4:
+            pruned_history = self.context_manager.prune_history(
+                self.conversation_history,
+                self.current_file_context
+            )
+
+            # Track pruning stats
+            if len(pruned_history) < len(self.conversation_history):
+                stats = self.context_manager.get_pruning_stats(
+                    self.conversation_history,
+                    pruned_history
+                )
+                self.pruning_stats.append(stats)
+                messages_to_send = pruned_history
+        
+        # Clean internal tracking fields before sending to API
+        messages_to_send = [
+            {k: v for k, v in msg.items() if k != '_original_idx'}
+            for msg in messages_to_send
+        ]
+
+        # Build request
+        request_args = {
+            "model": self.config.model,
+            "max_tokens": self.config.max_tokens,
+            "temperature": self.config.temperature,
+            "system": system_prompt,
+            "messages": messages_to_send,
+        }
+
+        if tools:
+            request_args["tools"] = tools
+
+        # RATE LIMITING: Estimate tokens
+        estimated_tokens = len(system_prompt) // 3
+        if tools:
+            estimated_tokens += len(str(tools)) // 3
+
+        # Wait for rate limiter to allow request
+        await self.rate_limiter.acquire(estimated_tokens)
+
+        print(f"[DEBUG] Continuing with {len(messages_to_send)} messages in history", file=sys.stderr)
+        if messages_to_send:
+            print(f"[DEBUG] Last message role: {messages_to_send[-1].get('role')}", file=sys.stderr)
+            print(f"[DEBUG] Last message content preview: {str(messages_to_send[-1].get('content'))[:100]}...", file=sys.stderr)
+        
+        # Stream response
+        assistant_message_content = []
+        
+        try:
+            async with self.client.messages.stream(**request_args) as stream:
+                async for event in stream:
+                    if event.type == "content_block_start":
+                        block = event.content_block
+                        if isinstance(block, TextBlock):
+                            pass  # Text will come in deltas
+                        elif isinstance(block, ToolUseBlock):
+                            # Tool use started
+                            assistant_message_content.append({
+                                "type": "tool_use",
+                                "id": block.id,
+                                "name": block.name,
+                                "input": {}
+                            })
+
+                    elif event.type == "content_block_delta":
+                        delta = event.delta
+                        if delta.type == "text_delta":
+                            # Text content
+                            text = delta.text
+
+                            # Add to assistant message if not already there
+                            if not assistant_message_content or assistant_message_content[-1].get("type") != "text":
+                                assistant_message_content.append({
+                                    "type": "text",
+                                    "text": text
+                                })
+                            else:
+                                assistant_message_content[-1]["text"] += text
+
+                            yield {"type": "text", "content": text}
+
+                        elif delta.type == "input_json_delta":
+                            # Tool input being built
+                            pass
+
+                    elif event.type == "content_block_stop":
+                        # Check if this was a tool use block
+                        if assistant_message_content and assistant_message_content[-1].get("type") == "tool_use":
+                            pass
+
+            # Get final message
+            final_message = await stream.get_final_message()
+
+            # Track token usage
+            if hasattr(final_message, 'usage'):
+                self.total_input_tokens += final_message.usage.input_tokens
+                self.total_output_tokens += final_message.usage.output_tokens
+
+            # Process final content blocks for tool uses
+            for block in final_message.content:
+                if isinstance(block, ToolUseBlock):
+                    yield {
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input
+                    }
+
+            # Add assistant response to history
+            self.conversation_history.append({
+                "role": "assistant",
+                "content": final_message.content
+            })
+        except Exception as e:
+            print(f"\n[ERROR] Stream failed: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
+            raise
 
     def add_tool_result(self, tool_use_id: str, result: Any):
         """Add tool result to conversation history.
