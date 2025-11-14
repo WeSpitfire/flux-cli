@@ -35,8 +35,6 @@ from flux.tools.command import RunCommandTool
 from flux.tools.search import GrepSearchTool
 from flux.tools.filesystem import ListFilesTool, FindFilesTool
 from flux.tools.ast_edit import ASTEditTool
-from flux.tools.validation import ValidationTool
-from flux.tools.preview import PreviewEditTool
 from flux.tools.line_insert import InsertAtLineTool
 from flux.ui.display_manager import DisplayManager
 from flux.ui.command_router import CommandRouter
@@ -130,7 +128,6 @@ class CLIBuilder:
         cli.tools.register(MoveFileTool(cwd, undo_manager=cli.undo, workflow_enforcer=cli.workflow, approval_manager=cli.approval))
         cli.tools.register(DeleteFileTool(cwd, undo_manager=cli.undo, workflow_enforcer=cli.workflow, approval_manager=cli.approval))
         cli.tools.register(InsertAtLineTool(cwd, undo_manager=cli.undo, workflow_enforcer=cli.workflow, approval_manager=cli.approval))
-        cli.tools.register(PreviewEditTool(cwd))
         cli.tools.register(RunCommandTool(cwd))
         cli.tools.register(GrepSearchTool(cwd, workflow_enforcer=cli.workflow))
         cli.tools.register(ListFilesTool(cwd))
@@ -139,8 +136,6 @@ class CLIBuilder:
         # Register ast_edit only for larger models
         if "haiku" not in config.model.lower() and "gpt-3.5" not in config.model.lower():
             cli.tools.register(ASTEditTool(cwd, undo_manager=cli.undo, workflow_enforcer=cli.workflow, approval_manager=cli.approval))
-        
-        cli.tools.register(ValidationTool(cwd))
         
         # Initialize AI Orchestrator
         cli.orchestrator = AIOrchestrator(cli.llm, cwd)
