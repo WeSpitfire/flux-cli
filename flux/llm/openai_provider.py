@@ -1,8 +1,9 @@
 """OpenAI provider implementation for GPT models."""
 
 import json
+import asyncio
 from typing import List, Dict, Any, AsyncIterator, Optional
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError
 
 from flux.core.config import Config
 from flux.core.context_manager import ContextManager
@@ -38,6 +39,26 @@ class OpenAIProvider(BaseLLMProvider):
         # Budget: 2K history + 8K system+tools + 4K response = ~14K total (safe margin)
         max_history = getattr(config, 'max_history', 2000)
         self.context_manager = ContextManager(max_context_tokens=max_history)
+        
+    async def _call_with_retry(self, func, **kwargs):
+        """Call API with exponential backoff retry on rate limits."""
+        max_retries = 5
+        base_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                return await func(**kwargs)
+            except RateLimitError as e:
+                if attempt == max_retries - 1:
+                    raise  # Re-raise on final attempt
+                
+                # Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                delay = base_delay * (2 ** attempt)
+                print(f"⚠️  Rate limit hit. Waiting {delay}s before retry {attempt + 1}/{max_retries}...")
+                await asyncio.sleep(delay)
+            except Exception as e:
+                # Other errors, don't retry
+                raise
 
     async def send_message(
         self,
@@ -94,8 +115,8 @@ class OpenAIProvider(BaseLLMProvider):
         tool_calls = {}
         current_tool_call_index = None
 
-        # Stream response
-        stream = await self.client.chat.completions.create(**request_args)
+        # Stream response with retry on rate limit
+        stream = await self._call_with_retry(self.client.chat.completions.create, **request_args)
 
         async for chunk in stream:
             if not chunk.choices:
@@ -234,8 +255,8 @@ class OpenAIProvider(BaseLLMProvider):
         full_response = ""
         tool_calls = {}
         
-        # Stream response
-        stream = await self.client.chat.completions.create(**request_args)
+        # Stream response with retry on rate limit
+        stream = await self._call_with_retry(self.client.chat.completions.create, **request_args)
         
         async for chunk in stream:
             if not chunk.choices:
