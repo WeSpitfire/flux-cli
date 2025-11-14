@@ -23,6 +23,10 @@ function createWindow () {
     width: 1200,
     height: 800,
     backgroundColor: '#1a1b26',
+    titleBarStyle: 'hiddenInset', // Modern macOS style
+    vibrancy: 'under-window',      // Translucent window
+    visualEffectState: 'active',
+    trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       nodeIntegration: false,

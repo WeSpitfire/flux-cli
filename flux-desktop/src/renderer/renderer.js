@@ -115,8 +115,8 @@ function initializeTerminalForTab(tabId, containerElement) {
     fitAddon.fit();
   }, 50);
   
-  // Simple, fast startup message
-  terminal.writeln('\x1b[38;5;110mFlux ready.\x1b[0m Type your question or command below.');
+  // Minimal startup - just the logo
+  terminal.writeln('\x1b[38;5;110m⚡ Flux\x1b[0m');
   
   // Store terminal instance
   terminals.set(tabId, {
@@ -196,46 +196,17 @@ function hideTypingIndicator() {
   }
 }
 
-// Status messages with context
-const statusMessages = [
-  { icon: '🔍', text: 'Analyzing your request...', type: 'analyzing' },
-  { icon: '📚', text: 'Reading codebase...', type: 'reading' },
-  { icon: '🤔', text: 'Thinking...', type: 'thinking' },
-  { icon: '✏️', text: 'Writing code...', type: 'writing' },
-  { icon: '🔧', text: 'Making changes...', type: 'modifying' },
-  { icon: '🧪', text: 'Testing...', type: 'testing' },
-  { icon: '📝', text: 'Formatting output...', type: 'formatting' }
-];
-
-let currentStatusIndex = 0;
-let statusRotationInterval = null;
-
-// Update status with rotation
+// Update status - simple and clean
 function updateStatus(status, text) {
   statusDot.className = `status-dot ${status}`;
   
-  // If processing, rotate through status messages
   if (status === 'processing') {
+    statusText.textContent = 'Thinking...';
     showTypingIndicator();
-    startStatusRotation();
   } else {
-    stopStatusRotation();
+    statusText.textContent = text || 'Ready';
     hideTypingIndicator();
-    statusText.textContent = text;
   }
-}
-
-// Rotate status messages for better context
-function startStatusRotation() {
-  if (statusRotationInterval) return;
-  
-  currentStatusIndex = 0;
-  updateStatusMessage();
-  
-  statusRotationInterval = setInterval(() => {
-    currentStatusIndex = (currentStatusIndex + 1) % statusMessages.length;
-    updateStatusMessage();
-  }, 3000); // Change every 3 seconds
 }
 
 // Auto-fix notification system
@@ -273,23 +244,7 @@ function showAutoFixNotification(filePath, fixCount, fixTypes) {
   }, 5000);
 }
 
-function stopStatusRotation() {
-  if (statusRotationInterval) {
-    clearInterval(statusRotationInterval);
-    statusRotationInterval = null;
-  }
-}
-
-function updateStatusMessage() {
-  const message = statusMessages[currentStatusIndex];
-  statusText.textContent = message.text;
-  
-  // Also update typing indicator
-  const typingLabel = document.querySelector('.typing-indicator-label');
-  if (typingLabel) {
-    typingLabel.innerHTML = `${message.icon} ${message.text}`;
-  }
-}
+// Status rotation functions removed - keeping it simple
 
 // Get active terminal instance and state
 function getActiveTerminal() {
@@ -457,17 +412,12 @@ function executeCommand(command) {
   activeTerminal.state.isProcessing = true;
   updateSendButton(true);
   
-  // Write command to terminal with enhanced formatting
-  const termWidth = activeTerminal.terminal.cols;
+  // Write command to terminal with simple formatting
   activeTerminal.terminal.writeln('');
-  activeTerminal.terminal.writeln('\x1b[2m' + '─'.repeat(termWidth) + '\x1b[0m');
-  activeTerminal.terminal.writeln('');
-  // User input header
-  activeTerminal.terminal.writeln('\x1b[38;5;110m╭─ \x1b[1;38;5;153m👤 You\x1b[0m\x1b[38;5;110m ───────────────────────────────────────────────\x1b[0m');
-  activeTerminal.terminal.write('\x1b[38;5;153m');
+  activeTerminal.terminal.writeln('\x1b[2m─\x1b[0m');
+  activeTerminal.terminal.write('\x1b[38;5;153m→ \x1b[0m');
   activeTerminal.terminal.write(command);
-  activeTerminal.terminal.writeln('\x1b[0m');
-  activeTerminal.terminal.writeln('\x1b[38;5;110m╰────────────────────────────────────────────────────╯\x1b[0m');
+  activeTerminal.terminal.writeln('');
   activeTerminal.terminal.writeln('');
   activeTerminal.terminal.scrollToBottom();
   
@@ -493,7 +443,7 @@ function executeCommand(command) {
 }
 
 // Typewriter effect settings
-let TYPING_SPEED = 15; // milliseconds per character (adjustable: lower = faster)
+let TYPING_SPEED = 0; // milliseconds per character (0 = instant, adjustable: lower = faster)
 let skipAnimation = false;
 let lastOutputTime = null;
 let inactivityCheckInterval = null;
@@ -510,13 +460,7 @@ function typewriterEffectForTab(tabId) {
     
     // Clear buffer (already processed and added to queue by onOutput handler)
     state.outputBuffer = '';
-    
-    // Add Flux response footer if we had a header
-    if (state.hasFluxHeader) {
-      const footer = '\r\n\x1b[38;5;110m╰────────────────────────────────────────────────────╯\x1b[0m\r\n';
-      terminal.write(footer);
-      state.hasFluxHeader = false;
-    }
+    state.hasFluxHeader = false; // Reset header flag
     
     // Only update UI if this is the active tab
     if (tabId === tabManager.activeTabId) {
@@ -665,13 +609,7 @@ window.flux.onOutput((tabId, data) => {
     showAutoFixNotification(filePath, parseInt(fixCount), fixTypes);
   }
   
-  // Add Flux response header if this is the start of output
-  // Only add header once per command (when queue is empty and header not yet added)
-  if (!terminalData.state.hasFluxHeader && terminalData.state.outputQueue.length === 0) {
-    const header = '\x1b[38;5;110m╭─ \x1b[1;38;5;153m⚡ Flux\x1b[0m\x1b[38;5;110m ───────────────────────────────────────────────\x1b[0m\r\n';
-    terminalData.state.outputQueue.push(...header.split(''));
-    terminalData.state.hasFluxHeader = true;
-  }
+  // No header needed - keep output clean
   
   // Add to buffer for formatting
   terminalData.state.outputBuffer += data;

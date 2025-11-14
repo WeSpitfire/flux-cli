@@ -20,7 +20,7 @@ class Config:
     openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
 
     # LLM Settings
-    model: str = field(default_factory=lambda: os.getenv("FLUX_MODEL", "claude-3-5-sonnet-20241022"))
+    model: str = field(default_factory=lambda: os.getenv("FLUX_MODEL", "claude-3-5-sonnet-20240620"))
     max_tokens: int = field(default_factory=lambda: int(os.getenv("FLUX_MAX_TOKENS", "8192")))
     max_history: int = 50000  # Updated for 200K models - can be overridden by CLI argument
     temperature: float = field(default_factory=lambda: float(os.getenv("FLUX_TEMPERATURE", "0.0")))
@@ -126,7 +126,6 @@ class Config:
         if self.provider == "anthropic":
             valid_models = {
                 "claude-3-5-sonnet-20240620": {"context": 200000, "recommended": True},
-                "claude-3-5-sonnet-20241022": {"context": 200000, "recommended": True},
                 "claude-3-opus-20240229": {"context": 200000, "recommended": False},
                 "claude-3-sonnet-20240229": {"context": 200000, "recommended": False},
                 "claude-3-haiku-20240307": {"context": 200000, "recommended": False},
@@ -142,7 +141,7 @@ class Config:
             elif not valid_models[self.model].get("recommended"):
                 print(
                     f"\n💡 You're using {self.model}\n"
-                    f"   Consider upgrading to claude-3-5-sonnet-20241022 for best performance.\n",
+                    f"   Consider upgrading to claude-3-5-sonnet-20240620 for best performance.\n",
                     file=sys.stderr
                 )
 
