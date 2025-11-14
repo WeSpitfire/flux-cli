@@ -476,8 +476,8 @@ function typewriterEffectForTab(tabId) {
   
   state.isTyping = true;
   
-  // If skip is requested, flush all at once
-  if (skipAnimation && tabId === tabManager.activeTabId) {
+  // If instant mode (TYPING_SPEED = 0) or skip requested, flush all at once
+  if (TYPING_SPEED === 0 || (skipAnimation && tabId === tabManager.activeTabId)) {
     const remainingText = state.outputQueue.join('');
     state.outputQueue = [];
     terminal.write(remainingText);
@@ -492,6 +492,7 @@ function typewriterEffectForTab(tabId) {
     return;
   }
   
+  // Character-by-character mode (for slower typing speeds)
   const char = state.outputQueue.shift();
   terminal.write(char);
   
