@@ -276,7 +276,8 @@ class CommandRouter:
             "  [green]/watch[/green] - Start test watch mode\n"
             "  [green]/watch-stop[/green] - Stop test watch mode\n"
             "\n[bold cyan]Codebase Intelligence:[/bold cyan]\n"
-            "  [green]/index[/green] - Build semantic codebase graph\n"
+            "  [green]/index[/green] - Build codebase graph + semantic search index\n"
+            "  [green]/semantic-search <query>[/green] - Search code semantically\n"
             "  [green]/related <file|query>[/green] - Find related files\n"
             "  [green]/architecture[/green] - Show detected architecture\n"
             "  [green]/preview <file>[/green] - Preview impact of modifying a file\n"
@@ -586,8 +587,10 @@ class CommandRouter:
 
     # Codebase intelligence
     async def handle_index(self, args: Optional[str]):
-        """Handle /index command."""
-        await self.cli.build_codebase_graph()
+        """Handle /index command - builds codebase graph and semantic search index."""
+        self.cli.console.print("[bold cyan]📊 Indexing codebase...[/bold cyan]")
+        await self.cli.build_codebase_graph(index_semantic=True)
+        self.cli.console.print("[green]✓ Indexing complete![/green]")
 
     async def handle_analyze(self, args: Optional[str]):
         """Handle /analyze command."""
@@ -639,8 +642,8 @@ class CommandRouter:
             
             if result.get('error'):
                 self.cli.display.print_error(result['error'])
-                if result.get('suggestion') == 'index_project':
-                    self.cli.display.print_dim("Tip: Use /index-project to enable semantic search")
+                if result.get('suggestion') == 'index':
+                    self.cli.display.print_dim("Tip: Use /index to build codebase graph and enable semantic search")
                 return
             
             results = result.get('results', [])
@@ -697,12 +700,13 @@ class CommandRouter:
             self.cli.display.print_error(f"Search failed: {str(e)}")
     
     async def handle_index_project(self, args: Optional[str]):
-        """Handle /index-project command."""
+        """Handle /index-project command - detailed semantic search indexing with progress."""
         from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
         from flux.core.semantic_search import SemanticSearchEngine
         import asyncio
         
-        self.cli.console.print("\n[bold cyan]📚 Indexing project for semantic search...[/bold cyan]\n")
+        self.cli.console.print("\n[bold cyan]📚 Indexing project for semantic search (detailed mode)...[/bold cyan]\n")
+        self.cli.display.print_dim("Tip: Use /index for quick indexing + codebase graph\n")
         
         # Parse max files argument
         max_files = 1000

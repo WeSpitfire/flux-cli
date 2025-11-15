@@ -249,9 +249,9 @@ Returns: Code chunks with similarity scores (0-1), file paths, and line numbers.
             # Check if project is indexed
             if not self.engine.indexed_files:
                 return {
-                    "error": "Project not indexed. Run /index-project first to enable semantic search.",
+                    "error": "Project not indexed. Run /index to build codebase graph and enable semantic search.",
                     "results": [],
-                    "suggestion": "index_project"
+                    "suggestion": "index"
                 }
             
             # Perform semantic search

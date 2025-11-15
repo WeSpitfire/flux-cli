@@ -27,8 +27,12 @@ class CLI:
         initialized = CLIBuilder.build(config, cwd)
         self.__dict__.update(initialized.__dict__)
 
-    async def build_codebase_graph(self) -> None:
-        """Build the codebase semantic graph (runs in background)."""
+    async def build_codebase_graph(self, index_semantic: bool = True) -> None:
+        """Build the codebase semantic graph and optionally index for semantic search.
+        
+        Args:
+            index_semantic: Whether to also build semantic search index (default: True)
+        """
         if self._graph_building or self.codebase_graph:
             return
 
@@ -52,10 +56,49 @@ class CLI:
 
             # Initialize task planner with graph
             self.task_planner = TaskPlanner(self.llm, self.codebase_graph)
+            
+            # Also index for semantic search if requested
+            if index_semantic:
+                await self._index_semantic_search()
         except Exception as e:
             self.console.print(f"[yellow]Warning: Could not build code graph: {e}[/yellow]")
         finally:
             self._graph_building = False
+    
+    async def _index_semantic_search(self) -> None:
+        """Index project for semantic search (internal helper)."""
+        try:
+            from flux.core.semantic_search import SemanticSearchEngine
+            
+            self.console.print("[dim]📚 Indexing for semantic search...[/dim]")
+            
+            # Get or create semantic search tool
+            semantic_tool = self.tools.get_tool('semantic_search')
+            if not semantic_tool or not semantic_tool.engine:
+                # Initialize engine if needed
+                engine = SemanticSearchEngine(
+                    project_path=self.cwd,
+                    llm_client=self.llm
+                )
+            else:
+                engine = semantic_tool.engine
+            
+            # Index with simple text progress (no progress bar for desktop compatibility)
+            max_files = 300
+            
+            indexed_count = await engine.index_project(
+                max_files=max_files,
+                force_reindex=False
+            )
+            
+            if indexed_count > 0:
+                self.console.print(f"[dim]✓ Indexed {indexed_count} files for semantic search[/dim]")
+            else:
+                self.console.print("[dim]✓ Semantic search index up to date[/dim]")
+                
+        except Exception as e:
+            # Non-fatal - just log and continue
+            self.console.print(f"[dim yellow]⚠ Could not index for semantic search: {e}[/dim yellow]")
 
     async def _load_readme(self) -> Optional[str]:
         """Load README file for project understanding."""
