@@ -1,5 +1,10 @@
 const { remote } = require('electron');
+const Vue = require('vue');
+const TerminalComponent = require('./components/Terminal.vue');
 const fs = require('fs');
+new Vue({
+  render: h => h(TerminalComponent.default),
+}).$mount('#app');
 const path = require('path');
 
 class SessionTracker {
