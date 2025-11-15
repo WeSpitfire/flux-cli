@@ -21,8 +21,8 @@ const MAX_BACKOFF_MS = 30000;
 function createWindow () {
   const win = new BrowserWindow({
     width: 1200,
-    height: 800,
-    backgroundColor: '#1a1b26',
+    nodeIntegration: true,
+    contextIsolation: false,
     titleBarStyle: 'hiddenInset', // Modern macOS style
     vibrancy: 'under-window',      // Translucent window
     visualEffectState: 'active',
@@ -35,7 +35,13 @@ function createWindow () {
     }
   });
 
-  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  const isDev = process.env.NODE_ENV === 'development';
+  if (isDev) {
+    win.loadURL('http://localhost:5173/index.html');
+    win.webContents.openDevTools(); // Open DevTools in development
+  } else {
+    win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  }
 
   // Helper to get or initialize retry state for a tab
   function getRetryState(tabId) {

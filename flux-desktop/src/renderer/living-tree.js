@@ -126,12 +126,24 @@ class LivingTree {
     this.initializeRoot();
   }
 
-  initializeRoot() {
-    // Get current directory from tab manager
+  async initializeRoot() {
+    // Get current directory from tab manager or file system API
     const activeTab = window.tabManager?.getActiveTab();
-    const cwd = activeTab?.cwd || process.cwd();
+    let cwd = activeTab?.cwd;
     
-    this.addNode(cwd, 'directory', 'root');
+    // Fallback to file system API if tab manager not available
+    if (!cwd && window.fileSystem?.getCwd) {
+      try {
+        cwd = await window.fileSystem.getCwd();
+      } catch (err) {
+        console.warn('[LivingTree] Could not get cwd:', err);
+        cwd = '/';
+      }
+    }
+    
+    if (cwd) {
+      this.addNode(cwd, 'directory', 'root');
+    }
   }
 
   setupFluxEventListeners() {

@@ -2,10 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' http://localhost:5173; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; connect-src 'self' http://localhost:5173 ws://localhost:5173;">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Flux - AI Coding Assistant</title>
-    <link rel="stylesheet" href="xterm.css">
+    <!-- xterm.css imported as module in main.js -->
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="command-palette.css">
     <link rel="stylesheet" href="command-confirm-dialog.css">
@@ -13,240 +13,26 @@
     <link rel="stylesheet" href="tree-context-menu.css">
   </head>
   <body>
-    <div class="app-container">
-      <!-- Header -->
-      <header class="header">
-        <div class="header-left">
-          <div class="logo">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" fill="currentColor"/>
-            </svg>
-            <span class="logo-text">Flux</span>
-          </div>
-        </div>
-        <div class="header-center">
-          <div class="status-indicator">
-            <div class="status-dot" id="status-dot"></div>
-            <span id="status-text">Ready</span>
-          </div>
-        </div>
-        <div class="header-right">
-          <button class="icon-btn" id="clear-btn" title="Clear terminal">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M2 14h12M8 2v8m-4-4l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-          </button>
-          <button class="icon-btn" id="settings-btn" title="Settings (⚙️)">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M12 1v6m0 6v10M1 12h6m6 0h10"/>
-              <path d="M4.93 4.93l4.24 4.24m5.66 5.66l4.24 4.24M4.93 19.07l4.24-4.24m5.66-5.66l4.24-4.24"/>
-            </svg>
-          </button>
-        </div>
-      </header>
+    <!-- Vue will render entire app -->
+    <div id="app"></div>
 
-      <!-- Main content area -->
-      <main class="main-content">
-        <!-- Sidebar for history and context -->
-        <aside class="sidebar" id="sidebar">
-          <!-- Tabs -->
-          <div class="sidebar-tabs">
-            <button class="sidebar-tab active" data-tab="history">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M8 2v6l4 2M14 8A6 6 0 112 8a6 6 0 0112 0z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              </svg>
-              History
-            </button>
-            <button class="sidebar-tab" data-tab="files">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M2 2h5l2 2h5v9H2V2z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              </svg>
-              Files
-            </button>
-            <button class="sidebar-tab" data-tab="codebase">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <circle cx="4" cy="4" r="2" stroke="currentColor" stroke-width="1.5"/>
-                <circle cx="12" cy="4" r="2" stroke="currentColor" stroke-width="1.5"/>
-                <circle cx="4" cy="12" r="2" stroke="currentColor" stroke-width="1.5"/>
-                <circle cx="12" cy="12" r="2" stroke="currentColor" stroke-width="1.5"/>
-                <path d="M6 4h4M4 6v4M12 6v4M6 12h4" stroke="currentColor" stroke-width="1.5"/>
-              </svg>
-              Explorer
-            </button>
-          </div>
-
-          <!-- History Panel -->
-          <div class="sidebar-panel active" id="history-panel">
-            <div class="sidebar-header">
-              <h3>Recent Commands</h3>
-              <button class="icon-btn" id="toggle-sidebar">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M10 4L6 8l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                </svg>
-              </button>
-            </div>
-            <div class="history-list" id="history-list">
-              <!-- History items will be populated here -->
-            </div>
-          </div>
-
-          <!-- Working Directory Panel -->
-          <div class="sidebar-panel" id="files-panel">
-            <div class="sidebar-header">
-              <h3>Working Directory</h3>
-              <button class="icon-btn" id="change-directory" title="Select Directory">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M2 2h5l2 2h5v9H2V2z" stroke="currentColor" stroke-width="1.5"/>
-                  <path d="M6 9l2-2 2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                </svg>
-              </button>
-            </div>
-            <div class="current-directory" id="current-directory">
-              <div class="directory-path" id="directory-path">Loading...</div>
-            </div>
-            <div class="file-tree" id="file-tree-container">
-              <!-- File tree will be populated here -->
-            </div>
-          </div>
-
-          <!-- Codebase Explorer Panel -->
-          <div class="sidebar-panel" id="codebase-panel">
-            <div class="sidebar-header">
-              <h3>Codebase Explorer</h3>
-              <button class="icon-btn" id="refresh-graph" title="Refresh Graph">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M14 2v4h-4M2 14v-4h4M2.5 7a6 6 0 0 1 11-3M13.5 9a6 6 0 0 1-11 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                </svg>
-              </button>
-            </div>
-            
-            <!-- Stats Summary -->
-            <div class="codebase-stats">
-              <div class="stat-card">
-                <div class="stat-value" id="total-files">-</div>
-                <div class="stat-label">Files</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-value" id="total-entities">-</div>
-                <div class="stat-label">Entities</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-value" id="context-tokens">-</div>
-                <div class="stat-label">Tokens</div>
-              </div>
-            </div>
-
-            <!-- Section: Hot Files -->
-            <div class="explorer-section">
-              <div class="section-header">🔥 Hot Files</div>
-              <div class="section-content" id="hot-files-list">
-                <div class="loading-text">Loading...</div>
-              </div>
-            </div>
-
-            <!-- Section: Dependencies -->
-            <div class="explorer-section">
-              <div class="section-header">📦 Dependencies</div>
-              <div class="section-content" id="dependencies-list">
-                <div class="loading-text">Loading...</div>
-              </div>
-            </div>
-
-            <!-- Section: Key Entities -->
-            <div class="explorer-section">
-              <div class="section-header">⚡ Key Entities</div>
-              <div class="section-content" id="entities-list">
-                <div class="loading-text">Loading...</div>
-              </div>
-            </div>
-          </div>
-        </aside>
-
-        <!-- Terminal and input area -->
-        <div class="workspace">
-          <!-- Tab Bar -->
-          <div class="tab-bar" id="tab-bar">
-            <div class="tab-list" id="tab-list">
-              <!-- Tabs will be populated here -->
-            </div>
-            <button class="tab-new-btn" id="new-tab-btn" title="New Tab (Cmd+T)">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            </button>
-          </div>
-          
-          <div class="terminal-wrapper">
-            <div id="terminal-container">
-              <!-- Terminal instances will be created here -->
-            </div>
-            <!-- Typing Indicator -->
-            <div class="typing-indicator" id="typing-indicator" style="display: none;">
-              <div class="typing-indicator-content">
-                <span class="typing-indicator-avatar">🤖</span>
-                <div class="typing-indicator-text">
-                  <span class="typing-indicator-label">Flux is thinking</span>
-                  <div class="typing-indicator-dots">
-                    <span class="dot"></span>
-                    <span class="dot"></span>
-                    <span class="dot"></span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <div class="input-area">
-            <div class="input-wrapper">
-              <div class="input-prefix">$</div>
-              <textarea 
-                id="command-input" 
-                placeholder="Ask Flux anything or type a command..."
-                autocomplete="off"
-                spellcheck="false"
-                rows="1"
-                style="resize: none; overflow: hidden;"
-              ></textarea>
-              <button class="send-btn" id="send-btn" title="Send (Enter)">
-                <svg class="send-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <path d="M2 10l16-8-8 16-2-6-6-2z" fill="currentColor"/>
-                </svg>
-                <svg class="stop-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" style="display: none;">
-                  <rect x="5" y="5" width="10" height="10" rx="1" fill="currentColor"/>
-                </svg>
-              </button>
-            </div>
-            <div class="input-hint">
-              <span><kbd>↵ Enter</kbd> send</span>
-              <span>•</span>
-              <span><kbd>⇧ Shift+Enter</kbd> new line</span>
-              <span>•</span>
-              <span><kbd>⌘ K</kbd> palette</span>
-              <span>•</span>
-              <span><kbd>↑ ↓</kbd> history</span>
-              <span>•</span>
-              <span><kbd>Esc</kbd> cancel</span>
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
-
-    <!-- Load xterm from node_modules -->
-    <script src="../../node_modules/xterm/lib/xterm.js"></script>
-    <script src="../../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
-    <script src="../../node_modules/xterm-addon-web-links/lib/xterm-addon-web-links.js"></script>
+    <!-- xterm will be imported as ES modules in the Vue app -->
     
+    <!-- Load utility classes but don't initialize yet -->
     <script src="terminal-formatter.js"></script>
     <script src="command-intelligence.js"></script>
     <script src="command-confirm-dialog.js"></script>
     <script src="command-palette.js"></script>
     <script src="tab-manager.js"></script>
     <script src="session-manager.js"></script>
-    <script src="renderer.js"></script>
-    <script src="file-explorer.js"></script>
     <script src="tree-context-menu.js"></script>
     <script src="living-tree.js"></script>
+    
+    <!-- Initialize app logic - must load BEFORE Vue to catch vue-mounted event -->
+    <script src="renderer.js"></script>
+    <script src="file-explorer.js"></script>
+    
+    <!-- Vue app entry - will trigger initialization after mount -->
+    <script type="module" src="./vue/main.js"></script>
   </body>
 </html>

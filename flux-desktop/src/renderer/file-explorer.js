@@ -227,14 +227,38 @@ async function loadDirectory(dirPath, container) {
 }
 
 async function initFileExplorer() {
+  console.log('[File Explorer] Initializing...');
   const fileTreeContainer = document.getElementById('file-tree-container');
   const dirPathEl = document.getElementById('directory-path');
   
+  console.log('[File Explorer] Found elements:', { 
+    fileTreeContainer: !!fileTreeContainer, 
+    dirPathEl: !!dirPathEl 
+  });
+  
+  if (!fileTreeContainer || !dirPathEl) {
+    console.error('[File Explorer] Required DOM elements not found!');
+    // Retry after a delay in case Vue is still rendering
+    setTimeout(() => {
+      console.log('[File Explorer] Retrying initialization...');
+      initFileExplorer();
+    }, 500);
+    return;
+  }
+  
+  if (!window.fileSystem || !window.fileSystem.getCwd) {
+    console.error('[File Explorer] fileSystem API not available!');
+    dirPathEl.textContent = 'File system API not available';
+    return;
+  }
+  
   try {
     const rootPath = await window.fileSystem.getCwd();
+    console.log('[File Explorer] Got working directory:', rootPath);
     currentWorkingDirectory = rootPath;
     dirPathEl.textContent = rootPath;
     await loadDirectory(rootPath, fileTreeContainer);
+    console.log('[File Explorer] File tree loaded successfully');
     
     // Listen for working directory changes from other sources
     if (window.flux && window.flux.onWorkingDirectoryChanged) {
@@ -257,9 +281,25 @@ async function initFileExplorer() {
 // Export loadDirectory for use by directory changer
 window.loadDirectory = loadDirectory;
 
-// Initialize when DOM is ready
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initFileExplorer);
-} else {
+// Initialize when Vue has mounted the DOM
+let initStarted = false;
+
+function startInit() {
+  if (initStarted) return;
+  initStarted = true;
+  console.log('[File Explorer] Starting initialization...');
   initFileExplorer();
 }
+
+window.addEventListener('vue-mounted', () => {
+  console.log('[File Explorer] Vue mounted event received');
+  startInit();
+});
+
+// Fallback: if vue-mounted already fired, init after a delay
+setTimeout(() => {
+  if (!initStarted && document.getElementById('file-tree-container')) {
+    console.log('[File Explorer] Fallback initialization (vue-mounted may have already fired)');
+    startInit();
+  }
+}, 1000);

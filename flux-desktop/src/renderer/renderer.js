@@ -1,8 +1,18 @@
-// xterm modules are loaded via script tags in index.html
+console.log('[Renderer] renderer.js loading...');
+
+// xterm modules should be exposed by Vue app
 // Access them from global scope
+if (!window.Terminal || !window.FitAddon || !window.WebLinksAddon) {
+  console.error('[Renderer] xterm not available!', {
+    Terminal: !!window.Terminal,
+    FitAddon: !!window.FitAddon,
+    WebLinksAddon: !!window.WebLinksAddon
+  });
+}
+
 const Terminal = window.Terminal;
-const FitAddon = window.FitAddon.FitAddon;
-const WebLinksAddon = window.WebLinksAddon.WebLinksAddon;
+const FitAddon = window.FitAddon?.FitAddon;
+const WebLinksAddon = window.WebLinksAddon?.WebLinksAddon;
 
 // Global state for tab management
 const terminals = new Map(); // tabId -> terminal instance
@@ -13,12 +23,15 @@ let terminalFormatter = null;
 // Expose terminals globally for session management
 window.terminals = terminals;
 
-// Wait for DOM to be ready
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initializeApp);
-} else {
+console.log('[Renderer] Setting up vue-mounted event listener...');
+
+// Wait for Vue to mount the DOM before initializing
+window.addEventListener('vue-mounted', () => {
+  console.log('[Renderer] Vue mounted event received, initializing app...');
   initializeApp();
-}
+});
+
+console.log('[Renderer] Event listener set up, waiting for vue-mounted event...');
 
 async function initializeApp() {
   // Load appearance settings
@@ -113,6 +126,16 @@ function getTerminalConfig() {
 // Initialize terminal for a specific tab
 function initializeTerminalForTab(tabId, containerElement) {
   console.log('Initializing terminal for tab:', tabId);
+  
+  // Access xterm classes dynamically from window
+  const Terminal = window.Terminal;
+  const FitAddon = window.FitAddon?.FitAddon;
+  const WebLinksAddon = window.WebLinksAddon?.WebLinksAddon;
+  
+  if (!Terminal || !FitAddon || !WebLinksAddon) {
+    console.error('[Renderer] xterm classes not available:', { Terminal: !!Terminal, FitAddon: !!FitAddon, WebLinksAddon: !!WebLinksAddon });
+    return;
+  }
   
   // Create terminal instance
   const terminal = new Terminal(getTerminalConfig());
@@ -843,23 +866,8 @@ toggleSidebarBtn.addEventListener('click', () => {
   sidebar.classList.toggle('collapsed');
 });
 
-// Tab switching
-const sidebarTabs = document.querySelectorAll('.sidebar-tab');
-const sidebarPanels = document.querySelectorAll('.sidebar-panel');
-
-sidebarTabs.forEach(tab => {
-  tab.addEventListener('click', () => {
-    const tabName = tab.dataset.tab;
-    
-    // Update tab active state
-    sidebarTabs.forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    
-    // Update panel active state
-    sidebarPanels.forEach(p => p.classList.remove('active'));
-    document.getElementById(`${tabName}-panel`).classList.add('active');
-  });
-});
+// Tab switching is now handled by Vue Sidebar component
+// No need for manual event listeners here
 
 // Directory selection
 const changeDirBtn = document.getElementById('change-directory');

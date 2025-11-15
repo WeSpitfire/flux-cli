@@ -108,7 +108,7 @@ IMPORTANT:
 - Commands run from the project root directory
 - For subdirectory operations, use 'cd' in the command: "cd subdirectory && npm install"
 - Or specify the directory explicitly: "npm install --prefix flux-desktop"
-- Example: To run npm in flux-desktop, use: "npm install --prefix flux-desktop" or "cd flux-desktop && npm install""""
+- Example: To run npm in flux-desktop, use: "npm install --prefix flux-desktop" or "cd flux-desktop && npm install"""
 
     @property
     def parameters(self) -> List[ToolParameter]:
