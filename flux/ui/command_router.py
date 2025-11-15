@@ -14,6 +14,7 @@ class CommandRouter:
         """
         self.cli = cli
         self.handlers = self._register_handlers()
+        self.command_metadata = self._register_metadata()
 
     def _register_handlers(self) -> Dict[str, Callable]:
         """Register all command handlers.
@@ -153,7 +154,225 @@ class CommandRouter:
             
             # Onboarding
             '/guide': self.handle_guide,
+            
+            # Alias for /help all
+            '/commands': self.handle_commands,
         }
+    
+    def _register_metadata(self) -> Dict[str, Dict[str, Any]]:
+        """Register metadata for all commands.
+        
+        Returns:
+            Dictionary mapping command names to their metadata
+        """
+        return {
+            # Core commands
+            '/help': {'category': 'core', 'description': 'Show help message'},
+            '/commands': {'category': 'core', 'description': 'List all available commands'},
+            '/clear': {'category': 'core', 'description': 'Clear conversation history'},
+            '/history': {'category': 'core', 'description': 'Show conversation history summary'},
+            '/model': {'category': 'core', 'description': 'Show current LLM provider and model'},
+            '/guide': {'category': 'core', 'description': 'Interactive walkthrough for new users'},
+            
+            # State & Context
+            '/fix': {'category': 'context', 'description': 'Auto-detect and fix recent errors'},
+            '/state': {'category': 'context', 'description': 'Show project state'},
+            '/inspect': {'category': 'context', 'description': 'Inspect conversation state'},
+            
+            # Session management
+            '/session': {'category': 'session', 'description': 'Show current session summary'},
+            '/sessions': {'category': 'session', 'description': 'List all sessions'},
+            '/task': {'category': 'session', 'description': 'Set current task'},
+            '/memory': {'category': 'session', 'description': 'Show project memory'},
+            '/checkpoint': {'category': 'session', 'description': 'Save a checkpoint'},
+            '/project': {'category': 'session', 'description': 'Show files created in session'},
+            
+            # Project Brief
+            '/brief': {'category': 'brief', 'description': 'Show project brief'},
+            '/brief-add': {'category': 'brief', 'description': 'Add to project brief'},
+            '/brief-constraint': {'category': 'brief', 'description': 'Add critical constraint'},
+            '/brief-style': {'category': 'brief', 'description': 'Add coding style guideline'},
+            '/brief-edit': {'category': 'brief', 'description': 'Edit project brief'},
+            
+            # Conversation
+            '/summaries': {'category': 'conversation', 'description': 'Show conversation summaries'},
+            '/summarize': {'category': 'conversation', 'description': 'Manually trigger summarization'},
+            '/save': {'category': 'conversation', 'description': 'Save conversation state'},
+            '/restore': {'category': 'conversation', 'description': 'Restore conversation state'},
+            '/conversation': {'category': 'conversation', 'description': 'Show conversation info'},
+            
+            # Todos
+            '/todos': {'category': 'todos', 'description': 'Show todo list'},
+            '/todo': {'category': 'todos', 'description': 'Manage todos'},
+            
+            # Undo
+            '/undo': {'category': 'undo', 'description': 'Undo last file operation'},
+            '/undo-history': {'category': 'undo', 'description': 'Show undo history'},
+            
+            # Workflows
+            '/workflows': {'category': 'workflow', 'description': 'List available workflows'},
+            '/workflow': {'category': 'workflow', 'description': 'Execute a workflow'},
+            '/workflow-status': {'category': 'workflow', 'description': 'Show workflow status'},
+            '/watch': {'category': 'workflow', 'description': 'Start monitoring'},
+            '/watch-stop': {'category': 'workflow', 'description': 'Stop monitoring'},
+            '/status': {'category': 'workflow', 'description': 'Show monitor status'},
+            '/suggest': {'category': 'workflow', 'description': 'Get command suggestions'},
+            '/approval': {'category': 'workflow', 'description': 'Show approval stats'},
+            '/auto-approve': {'category': 'workflow', 'description': 'Toggle auto-approve mode'},
+            
+            # Git
+            '/diff': {'category': 'git', 'description': 'Show git diff of changes'},
+            '/commit': {'category': 'git', 'description': 'Smart commit with AI message'},
+            
+            # Testing
+            '/test': {'category': 'testing', 'description': 'Run project tests'},
+            '/watch-tests': {'category': 'testing', 'description': 'Start test watch mode'},
+            
+            # Codebase Intelligence
+            '/index': {'category': 'codebase', 'description': 'Build codebase graph + semantic index'},
+            '/semantic-search': {'category': 'codebase', 'description': 'Search code semantically'},
+            '/index-project': {'category': 'codebase', 'description': 'Detailed semantic indexing with progress'},
+            '/analyze': {'category': 'codebase', 'description': 'Analyze file structure'},
+            '/related': {'category': 'codebase', 'description': 'Find related files'},
+            '/architecture': {'category': 'codebase', 'description': 'Show detected architecture'},
+            '/preview': {'category': 'codebase', 'description': 'Preview impact of modifying file'},
+            '/suggest-ai': {'category': 'codebase', 'description': 'Get AI suggestions'},
+            
+            # Workspace
+            '/newtask': {'category': 'workspace', 'description': 'Create a new task'},
+            '/tasks': {'category': 'workspace', 'description': 'List all tasks'},
+            '/summary': {'category': 'workspace', 'description': 'Show work summary for today'},
+            '/stats': {'category': 'workspace', 'description': 'Show project statistics'},
+            '/performance': {'category': 'workspace', 'description': 'Show performance stats'},
+            '/perf': {'category': 'workspace', 'description': 'Show performance stats (alias)'},
+            '/metrics': {'category': 'workspace', 'description': 'Show tool reliability metrics'},
+            
+            # Validation
+            '/validate': {'category': 'quality', 'description': 'Validate modified files'},
+            
+            # Debug
+            '/debug': {'category': 'debug', 'description': 'Show debug session summary'},
+            '/debug-on': {'category': 'debug', 'description': 'Enable debug logging'},
+            '/debug-off': {'category': 'debug', 'description': 'Disable debug logging'},
+            '/debug-analyze': {'category': 'debug', 'description': 'Analyze debug session'},
+            
+            # Auto-fix
+            '/autofix': {'category': 'autofix', 'description': 'Show auto-fix status'},
+            '/autofix-on': {'category': 'autofix', 'description': 'Enable auto-fix'},
+            '/autofix-off': {'category': 'autofix', 'description': 'Disable auto-fix'},
+            '/autofix-undo': {'category': 'autofix', 'description': 'Undo last auto-fix'},
+            '/autofix-summary': {'category': 'autofix', 'description': 'Show auto-fix summary'},
+            '/autofix-watch': {'category': 'autofix', 'description': 'Start auto-fix watch mode'},
+            '/autofix-watch-stop': {'category': 'autofix', 'description': 'Stop auto-fix watch mode'},
+            '/autofix-stats': {'category': 'autofix', 'description': 'Show auto-fix statistics'},
+            
+            # Copilot
+            '/copilot': {'category': 'copilot', 'description': 'Show proactive suggestions'},
+            '/copilot-status': {'category': 'copilot', 'description': 'Show Copilot status'},
+            '/copilot-dismiss': {'category': 'copilot', 'description': 'Dismiss current suggestion'},
+            '/copilot-on': {'category': 'copilot', 'description': 'Enable Copilot mode'},
+            '/copilot-off': {'category': 'copilot', 'description': 'Disable Copilot mode'},
+            
+            # Time Machine
+            '/snapshot': {'category': 'timemachine', 'description': 'Create manual snapshot'},
+            '/snapshots': {'category': 'timemachine', 'description': 'List all snapshots'},
+            '/compare': {'category': 'timemachine', 'description': 'Compare snapshots'},
+            '/timeline': {'category': 'timemachine', 'description': 'Show Time Machine status'},
+            
+            # Smart Context
+            '/learn': {'category': 'context', 'description': 'Learn from codebase'},
+            '/context': {'category': 'context', 'description': 'Get relevant context'},
+            '/knowledge': {'category': 'context', 'description': 'Show knowledge graph stats'},
+            '/patterns': {'category': 'context', 'description': 'Show detected patterns'},
+        }
+    
+    def _get_commands_by_category(self) -> Dict[str, list]:
+        """Group commands by category.
+        
+        Returns:
+            Dictionary mapping category names to list of (command, description) tuples
+        """
+        categories = {}
+        for cmd, metadata in self.command_metadata.items():
+            category = metadata['category']
+            if category not in categories:
+                categories[category] = []
+            categories[category].append((cmd, metadata['description']))
+        
+        # Sort commands within each category
+        for category in categories:
+            categories[category].sort()
+        
+        return categories
+    
+    def _show_all_commands(self) -> None:
+        """Display all commands in a formatted table."""
+        from rich.table import Table
+        from rich.panel import Panel
+        
+        # Get all commands sorted alphabetically
+        all_commands = sorted(self.command_metadata.items())
+        
+        table = Table(title="All Available Commands", show_header=True, header_style="bold cyan")
+        table.add_column("Command", style="green", width=25)
+        table.add_column("Category", style="yellow", width=15)
+        table.add_column("Description", style="dim")
+        
+        for cmd, metadata in all_commands:
+            table.add_row(
+                cmd,
+                metadata['category'],
+                metadata['description']
+            )
+        
+        self.cli.console.print()
+        self.cli.console.print(table)
+        self.cli.console.print()
+        self.cli.console.print("[dim]💡 Tip: Use /help <category> to see commands by category[/dim]")
+        self.cli.console.print("[dim]Categories: core, git, testing, codebase, workflow, session, debug, etc.[/dim]")
+        self.cli.console.print()
+    
+    def _show_category_commands(self, category: str) -> None:
+        """Display commands for a specific category.
+        
+        Args:
+            category: The category to display
+        """
+        from rich.table import Table
+        
+        # Get commands for this category
+        category_commands = [
+            (cmd, metadata['description'])
+            for cmd, metadata in self.command_metadata.items()
+            if metadata['category'] == category.lower()
+        ]
+        
+        if not category_commands:
+            self.cli.display.print_error(f"Unknown category: {category}")
+            self.cli.display.print_dim("Available categories: core, git, testing, codebase, workflow, session, debug, etc.")
+            return
+        
+        category_commands.sort()
+        
+        table = Table(title=f"{category.title()} Commands", show_header=True, header_style="bold cyan")
+        table.add_column("Command", style="green", width=25)
+        table.add_column("Description", style="dim")
+        
+        for cmd, description in category_commands:
+            table.add_row(cmd, description)
+        
+        self.cli.console.print()
+        self.cli.console.print(table)
+        self.cli.console.print()
+    
+    def _get_available_categories(self) -> list:
+        """Get list of all available categories.
+        
+        Returns:
+            Sorted list of unique category names
+        """
+        categories = set(meta['category'] for meta in self.command_metadata.values())
+        return sorted(categories)
 
     async def handle(self, query: str) -> bool:
         """Route command to handler.
@@ -228,7 +447,26 @@ class CommandRouter:
         )
 
     async def handle_help(self, args: Optional[str]):
-        """Handle /help command."""
+        """Handle /help command with optional category/all argument.
+        
+        Usage:
+            /help           - Show curated essential commands
+            /help all       - Show all available commands
+            /help <category> - Show commands for specific category
+        """
+        # Check for special arguments
+        if args:
+            args_lower = args.lower().strip()
+            
+            if args_lower == 'all':
+                self._show_all_commands()
+                return
+            else:
+                # Try to show category
+                self._show_category_commands(args_lower)
+                return
+        
+        # Default: show curated help
         from rich.panel import Panel
 
         help_text = (
@@ -306,9 +544,15 @@ class CommandRouter:
             "  [green]/timeline[/green] - Show Time Machine status\n"
             "  [green]/knowledge[/green] - Show knowledge graph stats\n"
             "  [green]/context <query>[/green] - Get relevant context\n"
-        )
+            "\n[dim]💡 Tip: Use /help all or /commands to see all {} commands[/dim]\n"
+            "[dim]Or use /help <category> (e.g., /help git, /help debug)[/dim]"
+        ).format(len(self.command_metadata))
 
         self.cli.console.print(Panel(help_text, title="Help", border_style="blue"))
+    
+    async def handle_commands(self, args: Optional[str]):
+        """Handle /commands command - alias for /help all."""
+        self._show_all_commands()
 
     async def handle_model(self, args: Optional[str]):
         """Handle /model command."""
