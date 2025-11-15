@@ -332,6 +332,22 @@ class OpenAIProvider(BaseLLMProvider):
         self.messages.append(assistant_message)
         self.conversation_history.append({"role": "assistant", "content": full_response or "[tool_calls]"})
 
+    async def create_embedding(self, input: str, model: str = "text-embedding-3-small") -> Dict[str, Any]:
+        """Create embeddings using OpenAI's embeddings API.
+        
+        Args:
+            input: Text to embed
+            model: Embedding model to use
+            
+        Returns:
+            Response with embedding data
+        """
+        response = await self.client.embeddings.create(
+            input=input,
+            model=model
+        )
+        return response
+    
     def clear_history(self):
         """Clear conversation history."""
         self.conversation_history = []

@@ -52,6 +52,26 @@ class CommandRouter:
             '/memory': self.handle_memory,
             '/checkpoint': self.handle_checkpoint,
             '/project': self.handle_project,
+            
+            # Project Brief (conversation memory)
+            '/brief': self.handle_brief,
+            '/brief-add': self.handle_brief_add,
+            '/brief-constraint': self.handle_brief_constraint,
+            '/brief-style': self.handle_brief_style,
+            '/brief-edit': self.handle_brief_edit,
+            
+            # Conversation Summarization
+            '/summaries': self.handle_summaries,
+            '/summarize': self.handle_summarize_now,
+            
+            # Conversation State (cross-restart)
+            '/save': self.handle_save_conversation,
+            '/restore': self.handle_restore_conversation,
+            '/conversation': self.handle_conversation_info,
+
+            # Todos
+            '/todos': self.handle_todos,
+            '/todo': self.handle_todo,
 
             # Undo
             '/undo': self.handle_undo,
@@ -77,6 +97,10 @@ class CommandRouter:
             '/architecture': self.handle_architecture,
             '/preview': self.handle_preview,
             '/suggest-ai': self.handle_suggest_ai,
+            
+            # Semantic search
+            '/semantic-search': self.handle_semantic_search,
+            '/index-project': self.handle_index_project,
 
             # Workspace
             '/newtask': self.handle_newtask,
@@ -227,6 +251,14 @@ class CommandRouter:
             "  [green]/memory[/green] - Show project memory\n"
             "  [green]/checkpoint <msg>[/green] - Save a checkpoint\n"
             "  [green]/project[/green] - Show files created in this session\n"
+            "  [green]/brief[/green] - Show project brief (persistent context)\n"
+            "  [green]/brief-add <key> <value>[/green] - Add to project brief\n"
+            "  [green]/brief-constraint <text>[/green] - Add critical constraint\n"
+            "  [green]/brief-style <text>[/green] - Add coding style guideline\n"
+            "  [green]/summaries[/green] - Show conversation summaries\n"
+            "  [green]/summarize[/green] - Manually trigger summarization\n"
+            "  [green]/save[/green] - Manually save conversation state\n"
+            "  [green]/conversation[/green] - Show conversation state info\n"
             "\n[bold cyan]Workflows & Automation:[/bold cyan]\n"
             "  [green]/workflows[/green] - List available workflows\n"
             "  [green]/workflow <name>[/green] - Execute a workflow\n"
@@ -585,6 +617,184 @@ class CommandRouter:
     async def handle_suggest_ai(self, args: Optional[str]):
         """Handle AI suggestions."""
         await self.cli.show_suggestions()
+    
+    # Semantic search commands
+    async def handle_semantic_search(self, args: Optional[str]):
+        """Handle /semantic-search command."""
+        if not args:
+            self.cli.display.print_error("Usage: /semantic-search <query>")
+            self.cli.display.print_dim("Example: /semantic-search error handling logic")
+            return
+        
+        # Get the semantic search tool
+        tool = self.cli.tools.get_tool('semantic_search')
+        if not tool:
+            self.cli.display.print_error("Semantic search tool not available")
+            return
+        
+        self.cli.display.print_thinking("Searching codebase...")
+        
+        try:
+            result = await tool.execute(query=args, max_results=5)
+            
+            if result.get('error'):
+                self.cli.display.print_error(result['error'])
+                if result.get('suggestion') == 'index_project':
+                    self.cli.display.print_dim("Tip: Use /index-project to enable semantic search")
+                return
+            
+            results = result.get('results', [])
+            if not results:
+                self.cli.display.print_warning(f"No semantic matches found for: {args}")
+                return
+            
+            # Display results
+            from rich.panel import Panel
+            from rich.syntax import Syntax
+            
+            self.cli.console.print(f"\n[bold cyan]🔍 Semantic Search Results:[/bold cyan] {args}\n")
+            
+            for i, match in enumerate(results, 1):
+                score = match['score']
+                file_path = match['file_path']
+                start_line = match['start_line']
+                end_line = match['end_line']
+                content = match['content']
+                
+                # Determine relevance color
+                if score > 0.7:
+                    relevance = "[bold green]HIGH[/bold green]"
+                elif score > 0.5:
+                    relevance = "[yellow]MEDIUM[/yellow]"
+                else:
+                    relevance = "[dim]LOW[/dim]"
+                
+                # Show result header
+                self.cli.console.print(
+                    f"[bold]{i}.[/bold] {file_path}:{start_line}-{end_line} "
+                    f"(Relevance: {relevance} {score:.2f})\n"
+                )
+                
+                # Show code preview (first 10 lines max)
+                preview_lines = content.split('\n')[:10]
+                preview = '\n'.join(preview_lines)
+                if len(content.split('\n')) > 10:
+                    preview += "\n..."
+                
+                # Try to determine language from file extension
+                language = file_path.split('.')[-1] if '.' in file_path else 'text'
+                try:
+                    syntax = Syntax(preview, language, theme="monokai", line_numbers=True, start_line=start_line)
+                    self.cli.console.print(syntax)
+                except Exception:
+                    self.cli.console.print(preview)
+                
+                self.cli.console.print()  # Blank line between results
+            
+            self.cli.display.print_success(f"✓ Found {len(results)} semantic matches")
+            
+        except Exception as e:
+            self.cli.display.print_error(f"Search failed: {str(e)}")
+    
+    async def handle_index_project(self, args: Optional[str]):
+        """Handle /index-project command."""
+        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+        from flux.core.semantic_search import SemanticSearchEngine
+        import asyncio
+        
+        self.cli.console.print("\n[bold cyan]📚 Indexing project for semantic search...[/bold cyan]\n")
+        
+        # Parse max files argument
+        max_files = 1000
+        if args:
+            try:
+                max_files = int(args)
+            except ValueError:
+                self.cli.display.print_warning(f"Invalid max_files: {args}, using default (1000)")
+        
+        try:
+            # Initialize search engine
+            engine = SemanticSearchEngine(
+                project_path=self.cli.cwd,
+                llm_client=self.cli.llm
+            )
+            
+            # Find all code files first to show total count
+            from pathlib import Path
+            code_extensions = {'.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.go', '.rs', '.cpp', '.c'}
+            files_to_index = []
+            
+            for ext in code_extensions:
+                files_to_index.extend(self.cli.cwd.rglob(f'*{ext}'))
+                if len(files_to_index) >= max_files:
+                    break
+            
+            files_to_index = files_to_index[:max_files]
+            
+            # Filter out already indexed files
+            files_to_index = [f for f in files_to_index if str(f) not in engine.indexed_files]
+            
+            if not files_to_index:
+                self.cli.display.print_warning("All files already indexed!")
+                self.cli.display.print_dim("Run with new files or clear .flux/embeddings/ to re-index")
+                return
+            
+            total_files = len(files_to_index)
+            self.cli.console.print(f"Found [cyan]{total_files}[/cyan] files to index\n")
+            
+            # Index files with simple text progress
+            total_chunks = 0
+            indexed_count = 0
+            batch_size = 5
+            
+            for i in range(0, total_files, batch_size):
+                batch = files_to_index[i:i + batch_size]
+                
+                # Process each file in batch
+                for file_path in batch:
+                    rel_path = file_path.relative_to(self.cli.cwd)
+                    
+                    # Show progress with simple text
+                    percent = int((indexed_count / total_files) * 100)
+                    self.cli.console.print(
+                        f"[cyan][{indexed_count + 1}/{total_files}][/cyan] "
+                        f"({percent}%) Indexing: [dim]{rel_path}[/dim]"
+                    )
+                    
+                    # Index the file
+                    try:
+                        chunks = await engine.index_file(file_path)
+                        if chunks > 0:
+                            indexed_count += 1
+                            total_chunks += chunks
+                    except Exception as e:
+                        # Skip failed files, but show error
+                        self.cli.console.print(f"  [yellow]⚠ Skipped (error)[/yellow]")
+                        pass
+                
+                # Small delay between batches
+                await asyncio.sleep(0.01)
+            
+            # Final status
+            self.cli.console.print(f"\n[green]✓[/green] Indexed all {indexed_count} files")
+            
+            # Show results
+            from rich.panel import Panel
+            summary = (
+                f"Files indexed: [green]{indexed_count}[/green]\n"
+                f"Total chunks: [cyan]{total_chunks}[/cyan]\n"
+                f"Files scanned: {total_files}\n"
+                f"Index location: [dim]{engine.cache_dir}[/dim]"
+            )
+            self.cli.console.print("\n" + "="*60)
+            self.cli.console.print(Panel(summary, title="✓ Indexing Complete", border_style="green"))
+            
+            self.cli.display.print_dim("\nYou can now use /semantic-search <query> to search your codebase")
+            
+        except Exception as e:
+            self.cli.display.print_error(f"Indexing failed: {str(e)}")
+            import traceback
+            self.cli.display.print_dim(traceback.format_exc())
 
     # Workspace
     async def handle_newtask(self, args: Optional[str]):
@@ -1105,6 +1315,294 @@ class CommandRouter:
             output += "\n"
         
         self.cli.console.print(Panel(output, title="🎨 Design Patterns", border_style="yellow"))
+    
+    # Todo commands
+    async def handle_todos(self, args: Optional[str]):
+        """Handle /todos command - show current todos."""
+        from flux.commands.todos import show_todos
+        show_todos(self.cli)
+    
+    async def handle_todo(self, args: Optional[str]):
+        """Handle /todo command - manage todos."""
+        from flux.commands.todos import todo_command
+        
+        if not args:
+            # Show todos if no args
+            from flux.commands.todos import show_todos
+            show_todos(self.cli)
+            return
+        
+        # Parse args and call todo_command
+        arg_parts = args.split()
+        todo_command(self.cli, *arg_parts)
+    
+    # Project Brief commands (conversation memory)
+    async def handle_brief(self, args: Optional[str]):
+        """Handle /brief command - show project brief."""
+        from rich.panel import Panel
+        brief = self.cli.conversation_manager.project_brief
+        
+        if brief.is_empty():
+            self.cli.display.print_dim("Project brief is empty. Add information to help Flux remember context.")
+            self.cli.display.print_dim("\nExamples:")
+            self.cli.display.print_dim("  /brief-constraint Never use Amazon products")
+            self.cli.display.print_dim("  /brief-style Use TypeScript strict mode")
+            return
+        
+        # Show human-readable summary
+        summary = str(brief)
+        self.cli.console.print(f"\n[bold]📋 Project Brief:[/bold] {summary}\n")
+        
+        # Show full details
+        self.cli.console.print(Panel(brief.to_prompt(), title="Project Brief (Always in AI Prompt)", border_style="blue"))
+    
+    async def handle_brief_add(self, args: Optional[str]):
+        """Handle /brief-add command - add to project brief."""
+        if not args:
+            self.cli.display.print_error("Usage: /brief-add <key> <value>")
+            self.cli.display.print_dim("Keys: description, language, framework, database, current_task")
+            return
+        
+        parts = args.split(maxsplit=1)
+        if len(parts) < 2:
+            self.cli.display.print_error("Please provide both key and value")
+            return
+        
+        key, value = parts
+        brief = self.cli.conversation_manager.project_brief
+        
+        # Handle different keys
+        if key in ['language', 'lang']:
+            if value not in brief.languages:
+                brief.languages.append(value)
+        elif key in ['framework', 'fw']:
+            if value not in brief.frameworks:
+                brief.frameworks.append(value)
+        elif key == 'database':
+            brief.database = value
+        elif key == 'description':
+            brief.description = value
+        elif key == 'current_task':
+            brief.set_current_task(value)
+        else:
+            self.cli.display.print_error(f"Unknown key: {key}")
+            return
+        
+        self.cli.conversation_manager.save_project_brief()
+        self.cli.display.print_success(f"✓ Added to brief: {key} = {value}")
+    
+    async def handle_brief_constraint(self, args: Optional[str]):
+        """Handle /brief-constraint command - add critical constraint."""
+        if not args:
+            self.cli.display.print_error("Usage: /brief-constraint <constraint text>")
+            self.cli.display.print_dim("Example: /brief-constraint Never use Amazon products")
+            return
+        
+        brief = self.cli.conversation_manager.project_brief
+        brief.add_constraint(args)
+        self.cli.conversation_manager.save_project_brief()
+        
+        self.cli.display.print_success(f"✓ Constraint added (will NEVER be forgotten)")
+        self.cli.display.print_dim(f"  {args}")
+    
+    async def handle_brief_style(self, args: Optional[str]):
+        """Handle /brief-style command - add coding style."""
+        if not args:
+            self.cli.display.print_error("Usage: /brief-style <style guideline>")
+            self.cli.display.print_dim("Example: /brief-style Use TypeScript strict mode")
+            return
+        
+        brief = self.cli.conversation_manager.project_brief
+        brief.add_coding_style(args)
+        self.cli.conversation_manager.save_project_brief()
+        
+        self.cli.display.print_success(f"✓ Coding style added")
+        self.cli.display.print_dim(f"  {args}")
+    
+    async def handle_brief_edit(self, args: Optional[str]):
+        """Handle /brief-edit command - open brief in editor."""
+        from pathlib import Path
+        import subprocess
+        
+        project_dir = self.cli.cwd
+        flux_dir = Path.home() / ".flux" / "projects" / project_dir.name
+        brief_file = flux_dir / "brief.json"
+        
+        if not brief_file.exists():
+            self.cli.display.print_error("No brief file exists yet")
+            return
+        
+        # Open in default editor
+        editor = subprocess.os.environ.get('EDITOR', 'nano')
+        try:
+            subprocess.run([editor, str(brief_file)])
+            
+            # Reload brief
+            from flux.core.project_brief import ProjectBrief
+            self.cli.conversation_manager.project_brief = ProjectBrief.load(brief_file)
+            
+            self.cli.display.print_success("✓ Brief reloaded")
+        except Exception as e:
+            self.cli.display.print_error(f"Failed to open editor: {e}")
+    
+    # Conversation summarization commands
+    async def handle_summaries(self, args: Optional[str]):
+        """Handle /summaries command - show conversation summaries."""
+        from rich.panel import Panel
+        from rich.table import Table
+        
+        summarizer = self.cli.conversation_manager.summarizer
+        
+        if not summarizer.summaries:
+            self.cli.display.print_dim("No conversation summaries yet.")
+            self.cli.display.print_dim("Summaries are automatically created when context gets full (>70%).")
+            return
+        
+        # Show statistics
+        stats = summarizer.get_stats()
+        
+        stats_text = (
+            f"Total summaries: [cyan]{stats['total_summaries']}[/cyan]\n"
+            f"Messages summarized: [cyan]{stats['total_messages_summarized']}[/cyan]\n"
+            f"Tokens saved: [green]{stats['total_tokens_saved']}[/green]\n"
+            f"Compression: [cyan]{stats['compression_ratio']:.1f}%[/cyan]\n"
+        )
+        
+        self.cli.console.print(Panel(stats_text, title="📝 Summarization Stats", border_style="blue"))
+        
+        # Show summaries table
+        table = Table(title="Conversation Summaries", show_header=True)
+        table.add_column("Range", style="cyan")
+        table.add_column("Messages", justify="right")
+        table.add_column("Files", justify="right")
+        table.add_column("Summary")
+        
+        for summary in summarizer.summaries:
+            files_count = len(summary.files_discussed)
+            summary_preview = summary.summary_text[:60] + "..." if len(summary.summary_text) > 60 else summary.summary_text
+            
+            table.add_row(
+                summary.message_range,
+                str(summary.original_message_count),
+                str(files_count),
+                summary_preview
+            )
+        
+        self.cli.console.print("\n")
+        self.cli.console.print(table)
+    
+    async def handle_summarize_now(self, args: Optional[str]):
+        """Handle /summarize command - manually trigger summarization."""
+        conversation = self.cli.llm.conversation_history
+        
+        if len(conversation) <= 10:
+            self.cli.display.print_dim("Not enough messages to summarize (need at least 11).")
+            return
+        
+        self.cli.console.print("[dim]Manually triggering summarization...[/dim]")
+        
+        try:
+            await self.cli.conversation_manager._perform_summarization()
+            self.cli.display.print_success("✓ Summarization complete")
+        except Exception as e:
+            self.cli.display.print_error(f"Summarization failed: {e}")
+    
+    # Conversation state commands (cross-restart)
+    async def handle_save_conversation(self, args: Optional[str]):
+        """Handle /save command - manually save conversation state."""
+        try:
+            self.cli.conversation_manager.save_conversation_state()
+            stats = self.cli.conversation_manager.state_manager.get_stats()
+            
+            if stats['message_count'] > 0:
+                self.cli.display.print_success(f"✓ Saved {stats['message_count']} messages")
+                if stats['summaries_count'] > 0:
+                    self.cli.display.print_dim(f"  {stats['summaries_count']} summaries included")
+            else:
+                self.cli.display.print_dim("No messages to save yet")
+        except Exception as e:
+            self.cli.display.print_error(f"Failed to save: {e}")
+    
+    async def handle_restore_conversation(self, args: Optional[str]):
+        """Handle /restore command - restore previous conversation."""
+        state_manager = self.cli.conversation_manager.state_manager
+        
+        if not state_manager.has_saved_state():
+            self.cli.display.print_dim("No saved conversation found")
+            return
+        
+        from rich.prompt import Confirm
+        
+        # Get state info
+        state_manager.load_state()
+        prompt_msg = state_manager.get_restore_prompt_message()
+        
+        self.cli.console.print(f"\n{prompt_msg}\n")
+        
+        try:
+            should_restore = Confirm.ask(
+                "[cyan]Restore this conversation?[/cyan]",
+                default=True
+            )
+            
+            if should_restore:
+                # Clear current conversation first
+                self.cli.llm.clear_history()
+                
+                # Restore
+                restored = self.cli.conversation_manager.restore_conversation_state()
+                if restored:
+                    stats = state_manager.get_stats()
+                    self.cli.display.print_success(f"✓ Restored {stats['message_count']} messages")
+                    if stats['summaries_count'] > 0:
+                        self.cli.console.print(f"[dim]  {stats['summaries_count']} summaries loaded[/dim]")
+                else:
+                    self.cli.display.print_error("Failed to restore conversation")
+            else:
+                self.cli.display.print_dim("Restore cancelled")
+        except KeyboardInterrupt:
+            self.cli.display.print_dim("\nRestore cancelled")
+    
+    async def handle_conversation_info(self, args: Optional[str]):
+        """Handle /conversation command - show conversation state info."""
+        from rich.panel import Panel
+        from rich.table import Table
+        
+        state_manager = self.cli.conversation_manager.state_manager
+        stats = state_manager.get_stats()
+        
+        if not stats['has_state']:
+            self.cli.display.print_dim("No conversation state saved yet")
+            self.cli.display.print_dim("Conversation is automatically saved after each message")
+            return
+        
+        # Show stats
+        stats_text = (
+            f"Messages: [cyan]{stats['message_count']}[/cyan]\n"
+            f"Summaries: [cyan]{stats['summaries_count']}[/cyan]\n"
+            f"Sessions: [cyan]{stats['session_count']}[/cyan]\n"
+        )
+        
+        if stats['age_minutes'] > 0:
+            if stats['age_minutes'] < 60:
+                age_str = f"{int(stats['age_minutes'])} minutes ago"
+            elif stats['age_minutes'] < 1440:
+                age_str = f"{int(stats['age_minutes'] / 60)} hours ago"
+            else:
+                age_str = f"{int(stats['age_minutes'] / 1440)} days ago"
+            stats_text += f"Last saved: [dim]{age_str}[/dim]\n"
+        
+        self.cli.console.print(Panel(
+            stats_text,
+            title="💬 Conversation State",
+            border_style="blue"
+        ))
+        
+        # Show current conversation size
+        current_messages = len(self.cli.llm.conversation_history)
+        self.cli.console.print(
+            f"\n[dim]Current session: {current_messages} messages in memory[/dim]"
+        )
     
     # Onboarding commands
     async def handle_guide(self, args: Optional[str]):

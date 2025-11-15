@@ -1,0 +1,423 @@
+/* Living Tree Visualization Styles */
+
+/* Tree Stats */
+.tree-stats {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(88, 166, 255, 0.05);
+  border-radius: 6px;
+  margin: 12px 16px;
+}
+
+.stat-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #e6edf3;
+}
+
+.stat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.stat-dot.reading {
+  background: #58a6ff;
+  box-shadow: 0 0 8px rgba(88, 166, 255, 0.6);
+}
+
+.stat-dot.editing {
+  background: #3fb950;
+  box-shadow: 0 0 8px rgba(63, 185, 80, 0.6);
+}
+
+.stat-dot.connected {
+  background: #bc8cff;
+  box-shadow: 0 0 8px rgba(188, 140, 255, 0.6);
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.2);
+  }
+}
+
+/* Tree Canvas */
+.tree-canvas {
+  flex: 1;
+  position: relative;
+  background: radial-gradient(circle at 50% 50%, rgba(88, 166, 255, 0.03) 0%, transparent 70%);
+  border-radius: 8px;
+  margin: 0 16px 12px;
+  overflow: hidden;
+  min-height: 300px;
+}
+
+#tree-svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Tree Nodes */
+.tree-node {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.tree-node:hover {
+  transform: scale(1.1);
+}
+
+.node-circle {
+  transition: all 0.3s ease;
+}
+
+.node-circle.status-reading {
+  fill: #58a6ff;
+  filter: drop-shadow(0 0 4px rgba(88, 166, 255, 0.8));
+}
+
+.node-circle.status-editing {
+  fill: #3fb950;
+  filter: drop-shadow(0 0 4px rgba(63, 185, 80, 0.8));
+}
+
+.node-circle.status-creating {
+  fill: #d29922;
+  filter: drop-shadow(0 0 4px rgba(210, 153, 34, 0.8));
+}
+
+.node-circle.status-connected {
+  fill: #bc8cff;
+  filter: drop-shadow(0 0 4px rgba(188, 140, 255, 0.8));
+}
+
+.node-circle.status-analyzed {
+  fill: #39c5cf;
+  filter: drop-shadow(0 0 4px rgba(57, 197, 207, 0.8));
+}
+
+.node-circle.status-idle {
+  fill: #6e7681;
+}
+
+.node-circle.status-root {
+  fill: #f0f6fc;
+  filter: drop-shadow(0 0 6px rgba(240, 246, 252, 0.6));
+}
+
+.node-ring {
+  transition: all 0.3s ease;
+}
+
+.node-label {
+  fill: #e6edf3;
+  font-size: 10px;
+  text-anchor: middle;
+  pointer-events: none;
+  font-family: 'SF Mono', 'Monaco', monospace;
+}
+
+/* Tree Edges */
+.tree-edge {
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.tree-edge.edge-read {
+  stroke: #58a6ff;
+  stroke-dasharray: 4, 2;
+}
+
+.tree-edge.edge-dependency {
+  stroke: #bc8cff;
+}
+
+.tree-edge.edge-created {
+  stroke: #3fb950;
+}
+
+/* File Details Panel */
+.file-details {
+  position: absolute;
+  bottom: 60px;
+  left: 16px;
+  right: 16px;
+  background: rgba(13, 17, 23, 0.95);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  border-radius: 8px;
+  padding: 12px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.file-details-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(88, 166, 255, 0.1);
+}
+
+.file-details-icon {
+  font-size: 20px;
+}
+
+.file-details-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e6edf3;
+  font-family: 'SF Mono', 'Monaco', monospace;
+}
+
+.file-details-close {
+  background: none;
+  border: none;
+  color: #6e7681;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.file-details-close:hover {
+  background: rgba(255, 123, 114, 0.1);
+  color: #ff7b72;
+}
+
+.file-details-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-row {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.detail-label {
+  color: #6e7681;
+  min-width: 80px;
+}
+
+.detail-value {
+  color: #e6edf3;
+  font-family: 'SF Mono', 'Monaco', monospace;
+}
+
+.related-files {
+  flex-direction: column;
+}
+
+.related-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.related-item {
+  padding: 4px 8px;
+  background: rgba(88, 166, 255, 0.05);
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Monaco', monospace;
+  color: #58a6ff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.related-item:hover {
+  background: rgba(88, 166, 255, 0.15);
+  transform: translateX(2px);
+}
+
+/* Activity Feed */
+.activity-feed {
+  margin: 12px 16px;
+  background: rgba(13, 17, 23, 0.5);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.activity-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6e7681;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: rgba(88, 166, 255, 0.05);
+}
+
+.activity-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.activity-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(88, 166, 255, 0.05);
+  transition: background 0.2s ease;
+}
+
+.activity-item:hover {
+  background: rgba(88, 166, 255, 0.05);
+}
+
+.activity-item:last-child {
+  border-bottom: none;
+}
+
+.activity-icon {
+  font-size: 16px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.activity-icon.read {
+  background: rgba(88, 166, 255, 0.1);
+}
+
+.activity-icon.edit {
+  background: rgba(63, 185, 80, 0.1);
+}
+
+.activity-icon.create {
+  background: rgba(210, 153, 34, 0.1);
+}
+
+.activity-icon.delete {
+  background: rgba(255, 123, 114, 0.1);
+}
+
+.activity-icon.analyze {
+  background: rgba(188, 140, 255, 0.1);
+}
+
+.activity-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-action {
+  font-size: 11px;
+  color: #6e7681;
+  margin-bottom: 2px;
+}
+
+.activity-file {
+  font-size: 12px;
+  color: #e6edf3;
+  font-family: 'SF Mono', 'Monaco', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activity-time {
+  font-size: 10px;
+  color: #6e7681;
+  flex-shrink: 0;
+}
+
+/* Scrollbar styling */
+.activity-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.activity-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.activity-list::-webkit-scrollbar-thumb {
+  background: rgba(88, 166, 255, 0.2);
+  border-radius: 3px;
+}
+
+.activity-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(88, 166, 255, 0.3);
+}
+
+/* Empty state */
+.empty-tree {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #6e7681;
+  padding: 40px 20px;
+}
+
+.empty-tree-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.empty-tree-text {
+  font-size: 14px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.empty-tree-hint {
+  font-size: 12px;
+  color: #6e7681;
+  margin-top: 8px;
+  opacity: 0.7;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .tree-stats {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .file-details {
+    left: 8px;
+    right: 8px;
+  }
+}

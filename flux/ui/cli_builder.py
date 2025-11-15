@@ -27,12 +27,13 @@ from flux.core.auto_fixer import AutoFixer
 from flux.core.orchestrator import AIOrchestrator
 from flux.core.orchestrator_tools import register_all_tools
 from flux.core.task_planner import TaskPlanner
+from flux.core.todo_manager import TodoManager
 from flux.ui.nl_commands import get_parser
 from flux.llm.provider_factory import create_provider
 from flux.tools.base import ToolRegistry
 from flux.tools.file_ops import ReadFilesTool, WriteFileTool, EditFileTool, MoveFileTool, DeleteFileTool
 from flux.tools.command import RunCommandTool
-from flux.tools.search import GrepSearchTool
+from flux.tools.search import GrepSearchTool, SemanticSearchTool
 from flux.tools.filesystem import ListFilesTool, FindFilesTool
 from flux.tools.ast_edit import ASTEditTool
 from flux.tools.line_insert import InsertAtLineTool
@@ -63,6 +64,9 @@ class CLIBuilder:
         
         # Initialize display manager
         cli.display = DisplayManager()
+        
+        # Indicate thinking state
+        cli.display.print_thinking_indicator()
         
         # Keep console for backward compatibility
         cli.console = Console(file=sys.stdout, force_terminal=False)
@@ -130,6 +134,7 @@ class CLIBuilder:
         cli.tools.register(InsertAtLineTool(cwd, undo_manager=cli.undo, workflow_enforcer=cli.workflow, approval_manager=cli.approval))
         cli.tools.register(RunCommandTool(cwd))
         cli.tools.register(GrepSearchTool(cwd, workflow_enforcer=cli.workflow))
+        cli.tools.register(SemanticSearchTool(cwd, llm_client=cli.llm))
         cli.tools.register(ListFilesTool(cwd))
         cli.tools.register(FindFilesTool(cwd))
         
@@ -141,8 +146,12 @@ class CLIBuilder:
         cli.orchestrator = AIOrchestrator(cli.llm, cwd)
         register_all_tools(cli.orchestrator, cli)
         
-        # Initialize Smart Task Planner (lazy)
-        cli.task_planner = None
+        # Initialize Smart Task Planner (eager - so todos work immediately)
+        from flux.core.task_planner import TaskPlanner
+        cli.task_planner = TaskPlanner(cli.llm, codebase_graph=None)
+        
+        # Initialize Todo Manager
+        cli.todo_manager = TodoManager(state_path=config.flux_dir / "todos.json")
         
         # Initialize Session Manager
         from flux.core.session_manager import SessionManager, EventType
@@ -179,7 +188,7 @@ class CLIBuilder:
         cli.commands = CommandRouter(cli)
         
         from flux.core.conversation_manager import ConversationManager
-        cli.conversation = ConversationManager(cli)
+        cli.conversation_manager = ConversationManager(cli)
         
         from flux.core.workflow_coordinator import WorkflowCoordinator
         cli.workflow_coord = WorkflowCoordinator(cli)

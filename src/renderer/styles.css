@@ -1,4 +1,84 @@
-/* Add session UI styles here */
+/* Modern terminal styling */
+
+/* Terminal base styles */
+.terminal {
+  background-color: #1e1e1e;
+  color: #dcdcdc;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', Courier, monospace;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Light theme styles */
+.terminal.light {
+  background-color: #ffffff;
+  color: #000000;
+}
+
+/* Syntax highlighting */
+.terminal .keyword {
+  color: #c678dd;
+}
+
+.terminal .string {
+  color: #98c379;
+}
+
+.terminal .comment {
+  color: #5c6370;
+  font-style: italic;
+}
+
+/* Header styles */
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  background-color: #282c34;
+  border-bottom: 1px solid #444b6a;
+}
+
+.icon-btn {
+  background-color: transparent;
+  border: none;
+  color: #9aa5ce;
+  cursor: pointer;
+  transition: color 0.3s ease;
+  margin-left: 10px;
+}
+
+.icon-btn:hover {
+  color: #c0caf5;
+}
+
+.icon-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
+.terminal {
+  background-color: #282c34;
+  color: #abb2bf;
+  font-family: 'Courier New', Courier, monospace;
+  padding: 10px;
+  border-radius: 5px;
+}
+
+.terminal .keyword {
+  color: #c678dd;
+}
+
+.terminal .string {
+  color: #98c379;
+}
+
+.terminal .comment {
+  color: #5c6370;
+  font-style: italic;
+}
 header {
   display: flex;
   justify-content: flex-end;

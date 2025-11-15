@@ -1,0 +1,226 @@
+/* Tree Context Menu Styles */
+
+.tree-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 220px;
+  background: rgba(22, 27, 34, 0.95);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6),
+              0 0 0 1px rgba(88, 166, 255, 0.1);
+  padding: 6px 0;
+  opacity: 0;
+  transform: scale(0.95) translateY(-10px);
+  transition: opacity 0.15s ease, transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+}
+
+.tree-context-menu.show {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  pointer-events: all;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  cursor: pointer;
+  color: #e6edf3;
+  font-size: 13px;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+
+.context-menu-item:hover {
+  background: rgba(88, 166, 255, 0.12);
+  color: #58a6ff;
+}
+
+.context-menu-item:active {
+  background: rgba(88, 166, 255, 0.2);
+  transform: scale(0.98);
+}
+
+.context-menu-item.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.context-menu-icon {
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.context-menu-label {
+  flex: 1;
+  white-space: nowrap;
+}
+
+.context-menu-shortcut {
+  font-size: 11px;
+  color: #6e7681;
+  margin-left: auto;
+  padding-left: 16px;
+  font-family: 'SF Mono', 'Monaco', monospace;
+}
+
+.context-menu-separator {
+  height: 1px;
+  background: rgba(88, 166, 255, 0.1);
+  margin: 6px 8px;
+}
+
+/* Toast Notifications */
+
+.tree-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 10001;
+  min-width: 250px;
+  max-width: 400px;
+  padding: 12px 16px;
+  background: rgba(22, 27, 34, 0.95);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-radius: 8px;
+  color: #e6edf3;
+  font-size: 13px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6),
+              0 0 0 1px rgba(88, 166, 255, 0.2);
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+}
+
+.tree-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tree-toast-success {
+  border-left: 3px solid #3fb950;
+}
+
+.tree-toast-error {
+  border-left: 3px solid #ff7b72;
+}
+
+.tree-toast-info {
+  border-left: 3px solid #58a6ff;
+}
+
+.tree-toast-warning {
+  border-left: 3px solid #d29922;
+}
+
+/* Keyboard Hints */
+
+.tree-node {
+  cursor: pointer;
+  position: relative;
+}
+
+.tree-node:hover::after {
+  content: 'Right-click for actions';
+  position: absolute;
+  bottom: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  background: rgba(22, 27, 34, 0.95);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  border-radius: 4px;
+  font-size: 10px;
+  color: #6e7681;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  animation: fadeInHint 0.2s ease 0.5s forwards;
+  z-index: 1000;
+}
+
+@keyframes fadeInHint {
+  to {
+    opacity: 1;
+  }
+}
+
+/* macOS-style blur and vibrancy */
+@supports (backdrop-filter: blur(20px)) {
+  .tree-context-menu {
+    background: rgba(22, 27, 34, 0.85);
+  }
+  
+  .tree-toast {
+    background: rgba(22, 27, 34, 0.85);
+  }
+}
+
+/* Dark mode refinements */
+@media (prefers-color-scheme: dark) {
+  .tree-context-menu {
+    background: rgba(13, 17, 23, 0.95);
+    border-color: rgba(88, 166, 255, 0.25);
+  }
+  
+  .context-menu-item:hover {
+    background: rgba(88, 166, 255, 0.15);
+  }
+}
+
+/* Light mode (if ever needed) */
+@media (prefers-color-scheme: light) {
+  .tree-context-menu {
+    background: rgba(255, 255, 255, 0.95);
+    border-color: rgba(88, 166, 255, 0.3);
+    color: #24292f;
+  }
+  
+  .context-menu-item {
+    color: #24292f;
+  }
+  
+  .context-menu-item:hover {
+    background: rgba(88, 166, 255, 0.1);
+    color: #0969da;
+  }
+  
+  .context-menu-shortcut {
+    color: #57606a;
+  }
+  
+  .context-menu-separator {
+    background: rgba(88, 166, 255, 0.2);
+  }
+}
+
+/* Accessibility */
+.context-menu-item:focus {
+  outline: 2px solid #58a6ff;
+  outline-offset: -2px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .tree-context-menu {
+    min-width: 200px;
+  }
+  
+  .context-menu-item {
+    padding: 10px 14px;
+  }
+  
+  .tree-toast {
+    right: 16px;
+    bottom: 16px;
+    min-width: 200px;
+  }
+}

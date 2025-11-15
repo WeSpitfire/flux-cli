@@ -79,6 +79,168 @@ class CLI:
 
         suggested_files = self.codebase_graph.suggest_context_files(query, max_files=3)
         return suggested_files
+    
+    async def _maybe_restore_conversation(self):
+        """Check if we should restore previous conversation and prompt user."""
+        state_manager = self.conversation_manager.state_manager
+        
+        # Check if we should prompt
+        if not state_manager.should_prompt_restore():
+            return
+        
+        # Get prompt message
+        prompt_msg = state_manager.get_restore_prompt_message()
+        
+        from rich.panel import Panel
+        from rich.prompt import Confirm
+        
+        # Show prompt
+        self.console.print(Panel(
+            prompt_msg,
+            title="\u23f1\ufe0f  Previous Conversation Found",
+            border_style="cyan"
+        ))
+        
+        # Ask user
+        try:
+            should_restore = Confirm.ask(
+                "[cyan]Continue where you left off?[/cyan]",
+                default=True
+            )
+            
+            if should_restore:
+                # Restore
+                restored = self.conversation_manager.restore_conversation_state()
+                if restored:
+                    stats = state_manager.get_stats()
+                    self.console.print(
+                        f"[green]\u2713 Restored {stats['message_count']} messages[/green]"
+                    )
+                    if stats['summaries_count'] > 0:
+                        self.console.print(
+                            f"[dim]  {stats['summaries_count']} summaries loaded[/dim]"
+                        )
+                    
+                    # Add context message to help AI understand the restoration
+                    await self._add_restoration_context(state_manager.state)
+                else:
+                    self.console.print("[yellow]\u26a0 Failed to restore conversation[/yellow]")
+            else:
+                # User chose to start fresh
+                state_manager.clear_state()
+                self.console.print("[dim]Starting fresh conversation[/dim]")
+            
+            self.console.print()  # Empty line for spacing
+        except KeyboardInterrupt:
+            # User cancelled with Ctrl+C - start fresh
+            state_manager.clear_state()
+            self.console.print("\n[dim]Starting fresh conversation[/dim]\n")
+    
+    async def _add_restoration_context(self, state):
+        """Add a context message and re-read important files to help AI understand the restored conversation.
+        
+        Args:
+            state: ConversationState that was restored
+        """
+        if not state:
+            return
+        
+        # Collect all files mentioned in the conversation
+        all_files = set()
+        
+        # Get files from summaries
+        if state.summaries:
+            for summary in state.summaries:
+                all_files.update(summary.get('files_discussed', []))
+        
+        # Get files from recent conversation history
+        import re
+        for msg in state.conversation_history[-10:]:  # Last 10 messages
+            content = msg.get('content', '')
+            if isinstance(content, str):
+                # Extract file paths (simple heuristic)
+                # Match common file patterns: path/to/file.ext
+                file_patterns = re.findall(r'[\w/.-]+\.(py|js|ts|jsx|tsx|go|rs|java|cpp|c|h|rb|php|swift|kt|md|json|yaml|yml|toml|txt)', content)
+                all_files.update(file_patterns)
+        
+        # Filter to existing files and prioritize by importance
+        existing_files = []
+        for file_path in all_files:
+            full_path = self.cwd / file_path
+            if full_path.exists() and full_path.is_file():
+                existing_files.append(file_path)
+        
+        # Limit to top 5 most recently discussed files
+        files_to_read = existing_files[:5]
+        
+        # Re-read the important files
+        if files_to_read:
+            self.console.print(f"[dim]📖 Re-reading {len(files_to_read)} key files from previous session...[/dim]")
+            
+            try:
+                # Use the read_files tool to get file contents
+                file_contents = await self.tools.execute('read_files', paths=files_to_read)
+                
+                if not file_contents.get('error'):
+                    # Add file contents to conversation as context
+                    files_summary = []
+                    for file_info in file_contents.get('files', []):
+                        path = file_info.get('path', '')
+                        lines = file_info.get('total_lines', 0)
+                        files_summary.append(f"{path} ({lines} lines)")
+                    
+                    if files_summary:
+                        self.console.print(f"[dim]✓ Loaded: {', '.join(files_summary)}[/dim]")
+            except Exception as e:
+                # If reading fails, just continue without file context
+                self.console.print(f"[dim]⚠ Could not re-read files: {e}[/dim]")
+        
+        # Build a context summary
+        context_parts = []
+        
+        # Add project brief context if available
+        if state.project_brief:
+            brief_summary = []
+            if state.project_brief.get('project_name'):
+                brief_summary.append(f"Project: {state.project_brief['project_name']}")
+            if state.project_brief.get('constraints'):
+                constraints = state.project_brief.get('constraints', [])
+                brief_summary.append(f"Constraints: {', '.join(constraints[:2])}")
+            if brief_summary:
+                context_parts.append(", ".join(brief_summary))
+        
+        # Add summary information
+        if state.summaries:
+            all_decisions = []
+            for summary in state.summaries:
+                all_decisions.extend(summary.get('decisions_made', []))
+            
+            if all_decisions:
+                context_parts.append(f"Previous decisions: {len(all_decisions)} recorded")
+        
+        # Add files re-read info
+        if files_to_read:
+            context_parts.append(f"Key files re-loaded: {', '.join(files_to_read[:3])}")
+        
+        # Add this as a system message in the conversation
+        if context_parts:
+            context_msg = (
+                "[SYSTEM: Conversation restored from previous session. "
+                f"Context: {'. '.join(context_parts)}. "
+                "The key files have been re-read for you. Review the conversation history to understand what was discussed.]"
+            )
+            
+            # Add as a user message (lightweight reminder)
+            self.llm.conversation_history.append({
+                "role": "user",
+                "content": context_msg
+            })
+            
+            # Add assistant acknowledgment (so it knows it received the context)
+            self.llm.conversation_history.append({
+                "role": "assistant",
+                "content": "I understand. I've reviewed the restored conversation history and the key files. I'm ready to continue from where we left off."
+            })
 
     def print_banner(self):
         """Print Flux banner."""
@@ -107,6 +269,10 @@ class CLI:
     async def run_interactive(self):
         """Run interactive REPL mode."""
         self.print_banner()
+        
+        # === CONVERSATION STATE RESTORE ===
+        # Check if we should restore previous conversation
+        await self._maybe_restore_conversation()
 
         # Skip auto-initialization - user can trigger manually if needed
         # await auto_initialize(self)
@@ -304,31 +470,31 @@ class CLI:
 
     async def process_query(self, query: str):
         """Process a user query - delegates to ConversationManager."""
-        await self.conversation.process_query(query)
+        await self.conversation_manager.process_query(query)
 
     async def process_query_normal(self, query: str):
         """Process query through normal LLM conversation - delegates to ConversationManager."""
-        await self.conversation.process_query_normal(query)
+        await self.conversation_manager.process_query_normal(query)
 
     async def _process_query_normal_impl(self, query: str):
         """Internal implementation - delegates to ConversationManager."""
-        await self.conversation._process_query_normal_impl(query)
+        await self.conversation_manager._process_query_normal_impl(query)
 
     async def execute_tool(self, tool_use: dict):
         """Execute a tool - delegates to ConversationManager."""
-        await self.conversation.execute_tool(tool_use)
+        await self.conversation_manager.execute_tool(tool_use)
 
     async def continue_after_tools(self):
         """Continue conversation after tools - delegates to ConversationManager."""
-        await self.conversation.continue_after_tools()
+        await self.conversation_manager.continue_after_tools()
 
     def _get_retry_context(self) -> str:
         """Get retry context warning - delegates to ConversationManager."""
-        return self.conversation._get_retry_context()
+        return self.conversation_manager._get_retry_context()
 
     def _build_system_prompt(self, query: Optional[str] = None) -> str:
         """Build system prompt - delegates to ConversationManager."""
-        return self.conversation._build_system_prompt(query)
+        return self.conversation_manager._build_system_prompt(query)
 
 
     def _print_monitor_notification(self, notification: dict):

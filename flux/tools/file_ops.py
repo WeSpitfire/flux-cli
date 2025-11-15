@@ -10,6 +10,7 @@ from flux.core.errors import file_not_found_error, search_not_found_error, synta
 from flux.core.code_validator import CodeValidator
 from flux.core.smart_reader import SmartReader
 from flux.core.large_file_handler import get_handler
+from flux.core.tree_events import emit_file_read, emit_file_edit, emit_file_create
 from rich.console import Console
 
 
@@ -303,6 +304,12 @@ This file has {lines_count} lines, which is too large to read at once.
                 # Count lines in content
                 lines_count = content.count('\n') if content else 0
 
+                # Emit tree event for Living Tree visualization
+                try:
+                    emit_file_read(str(path))
+                except Exception:
+                    pass  # Don't fail on event emission errors
+
                 return path_str, {
                     "content": content,
                     "lines": lines_count,
@@ -450,8 +457,18 @@ ON ERROR: Check file permissions and path validity."""
                     }
 
             # Write file
+            is_new_file = old_content is None
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
+
+            # Emit tree event for Living Tree visualization
+            try:
+                if is_new_file:
+                    emit_file_create(str(file_path))
+                else:
+                    emit_file_edit(str(file_path))
+            except Exception:
+                pass  # Don't fail on event emission errors
 
             # Syntax check and auto-rollback if invalid
             if old_content is not None:
@@ -1056,6 +1073,12 @@ ON ERROR: Re-read file, copy exact text including all spaces/tabs. Check indenta
             # Write back
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(new_content)
+
+            # Emit tree event for Living Tree visualization
+            try:
+                emit_file_edit(str(file_path))
+            except Exception:
+                pass  # Don't fail on event emission errors
 
             additions, deletions, modifications = self.diff_preview.get_change_stats(content, new_content)
 

@@ -70,6 +70,123 @@ remote.getCurrentWindow().webContents.on('ipc-message', (event, channel, ...args
 // Track file explorer state
 // (implement this)
 
+// Initialize xterm.js for terminal
+const { Terminal } = require('xterm');
+require('xterm/css/xterm.css');
+
+const terminalContainer = document.createElement('div');
+terminalContainer.id = 'terminal-container';
+document.body.appendChild(terminalContainer);
+
+const terminal = new Terminal({
+  cursorBlink: true,
+  theme: {
+    background: '#1e1e1e', // Dark background
+    foreground: '#dcdcdc', // Light text
+    cursor: '#c678dd', // Cursor color
+    selection: '#44475a', // Selection color
+    black: '#282c34',
+    red: '#e06c75',
+    green: '#98c379',
+    yellow: '#e5c07b',
+    blue: '#61afef',
+    magenta: '#c678dd',
+    cyan: '#56b6c2',
+    white: '#abb2bf',
+    brightBlack: '#5c6370',
+    brightRed: '#e06c75',
+    brightGreen: '#98c379',
+    brightYellow: '#e5c07b',
+    brightBlue: '#61afef',
+    brightMagenta: '#c678dd',
+    brightCyan: '#56b6c2',
+    brightWhite: '#ffffff'
+  }
+});
+
+terminal.open(terminalContainer);
+
+function applyOutputColor(type, message) {
+  switch (type) {
+    case 'command':
+      terminal.writeln(`\x1b[34m${message}\x1b[0m`); // Blue for commands
+      break;
+    case 'output':
+      terminal.writeln(message); // Default color for output
+      break;
+    case 'error':
+      terminal.writeln(`\x1b[31m${message}\x1b[0m`); // Red for errors
+      break;
+    default:
+      terminal.writeln(message);
+  }
+}
+
+// Example usage
+applyOutputColor('command', 'echo Hello, World!');
+applyOutputColor('output', 'Hello, World!');
+applyOutputColor('error', 'Error: Something went wrong');
+
+// Function to toggle themes
+function toggleTheme(theme) {
+  const themes = {
+    dark: {
+      background: '#1e1e1e',
+      foreground: '#dcdcdc',
+      cursor: '#c678dd',
+      selection: '#44475a',
+      black: '#282c34',
+      red: '#e06c75',
+      green: '#98c379',
+      yellow: '#e5c07b',
+      blue: '#61afef',
+      magenta: '#c678dd',
+      cyan: '#56b6c2',
+      white: '#abb2bf',
+      brightBlack: '#5c6370',
+      brightRed: '#e06c75',
+      brightGreen: '#98c379',
+      brightYellow: '#e5c07b',
+      brightBlue: '#61afef',
+      brightMagenta: '#c678dd',
+      brightCyan: '#56b6c2',
+      brightWhite: '#ffffff'
+    },
+    light: {
+      background: '#ffffff',
+      foreground: '#000000',
+      cursor: '#000000',
+      selection: '#dcdcdc',
+      black: '#000000',
+      red: '#d70000',
+      green: '#5f8700',
+      yellow: '#af8700',
+      blue: '#0087ff',
+      magenta: '#af005f',
+      cyan: '#00afaf',
+      white: '#e4e4e4',
+      brightBlack: '#4e4e4e',
+      brightRed: '#ff0000',
+      brightGreen: '#87d700',
+      brightYellow: '#ffd700',
+      brightBlue: '#5fafff',
+      brightMagenta: '#ff5faf',
+      brightCyan: '#5fffff',
+      brightWhite: '#ffffff'
+    }
+  };
+  terminal.setOption('theme', themes[theme]);
+}
+
+// Add event listener for theme toggle
+const themeToggle = document.createElement('button');
+themeToggle.innerText = 'Toggle Theme';
+document.body.appendChild(themeToggle);
+themeToggle.addEventListener('click', () => {
+  const currentTheme = terminal.getOption('theme').background === '#1e1e1e' ? 'light' : 'dark';
+  toggleTheme(currentTheme);
+});
+
 // Initialize UI for model selection
 function initializeUI() {
   const modelSelect = document.createElement('select');

@@ -37,27 +37,22 @@ class CodeChunk:
 
 
 class EmbeddingGenerator:
-    """Generate embeddings for code chunks."""
+    """Generate embeddings for code chunks using LLM."""
     
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, llm_client=None, model_name: str = "text-embedding-3-small"):
         """Initialize embedding generator.
         
         Args:
-            model_name: Name of the sentence transformer model
+            llm_client: LLM client for generating embeddings (optional)
+            model_name: Name of the embedding model
         """
         self.model_name = model_name
-        self.model = None
-        self.use_lightweight = True  # Use lightweight TF-IDF by default
-        self._load_model()
-    
-    def _load_model(self):
-        """Load the embedding model lazily."""
-        # Skip heavy model loading entirely - use lightweight approach
-        logger.info("Using lightweight TF-IDF based embeddings (no heavy dependencies)")
-        self.model = None
+        self.llm_client = llm_client
+        self.use_lightweight = llm_client is None
+        logger.info(f"EmbeddingGenerator initialized: {'LLM-based' if not self.use_lightweight else 'TF-IDF fallback'}")
     
     def generate_embedding(self, text: str) -> np.ndarray:
-        """Generate embedding for text using lightweight approach.
+        """Generate embedding for text.
         
         Args:
             text: Text to embed
@@ -65,26 +60,79 @@ class EmbeddingGenerator:
         Returns:
             Embedding vector
         """
-        # Use a simple but effective TF-IDF-like approach
-        # Create a deterministic embedding based on text features
+        if self.llm_client and not self.use_lightweight:
+            # Use LLM embeddings (preferred)
+            try:
+                # Note: This is synchronous - for async use generate_embeddings_batch
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Already in async context - caller should use async method
+                    raise RuntimeError("Use generate_embedding_async in async context")
+                return loop.run_until_complete(self.generate_embedding_async(text))
+            except Exception as e:
+                logger.warning(f"LLM embedding failed, falling back to TF-IDF: {e}")
+                return self._generate_tfidf_embedding(text)
+        else:
+            # Use TF-IDF fallback
+            return self._generate_tfidf_embedding(text)
+    
+    async def generate_embedding_async(self, text: str) -> np.ndarray:
+        """Generate embedding asynchronously using LLM.
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Embedding vector
+        """
+        if self.llm_client and not self.use_lightweight:
+            try:
+                # Call LLM API for embeddings
+                response = await self.llm_client.create_embedding(
+                    input=text,
+                    model=self.model_name
+                )
+                # Extract embedding from response
+                if hasattr(response, 'data') and len(response.data) > 0:
+                    embedding = response.data[0].embedding
+                elif isinstance(response, dict) and 'data' in response:
+                    embedding = response['data'][0]['embedding']
+                else:
+                    raise ValueError(f"Unexpected response format: {type(response)}")
+                
+                return np.array(embedding, dtype=np.float32)
+            except Exception as e:
+                logger.warning(f"LLM embedding failed: {e}, falling back to TF-IDF")
+                return self._generate_tfidf_embedding(text)
+        else:
+            return self._generate_tfidf_embedding(text)
+    
+    def _generate_tfidf_embedding(self, text: str) -> np.ndarray:
+        """Generate TF-IDF based embedding (fallback).
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Embedding vector
+        """
         import re
         
         # Extract features
         words = re.findall(r'\w+', text.lower())
         
-        # Create a fixed-size embedding (384 dimensions to match MiniLM)
-        embedding = np.zeros(384)
+        # Create a fixed-size embedding (1536 dimensions for text-embedding-3-small)
+        embedding = np.zeros(1536)
         
-        # Use hash-based feature mapping (similar to HashingVectorizer)
-        for i, word in enumerate(words[:100]):  # Limit to first 100 words
-            # Hash word to get indices
+        # Use hash-based feature mapping
+        for i, word in enumerate(words[:100]):
             hash_val = int(hashlib.md5(word.encode()).hexdigest()[:8], 16)
             
-            # Map to multiple dimensions for robustness
-            for j in range(3):  # Each word affects 3 dimensions
-                idx = (hash_val + j * 1000) % 384
-                # TF-IDF-like weighting
-                weight = 1.0 / (1.0 + np.log(1 + i))  # Position-based decay
+            # Map to multiple dimensions
+            for j in range(5):  # Each word affects 5 dimensions
+                idx = (hash_val + j * 1000) % 1536
+                weight = 1.0 / (1.0 + np.log(1 + i))
                 embedding[idx] += weight
         
         # Normalize
@@ -103,8 +151,16 @@ class EmbeddingGenerator:
         Returns:
             List of embedding vectors
         """
-        # Always use lightweight approach
-        return [self.generate_embedding(text) for text in texts]
+        if self.llm_client and not self.use_lightweight:
+            # Use async LLM embeddings in parallel
+            embeddings = []
+            for text in texts:
+                embedding = await self.generate_embedding_async(text)
+                embeddings.append(embedding)
+            return embeddings
+        else:
+            # Use TF-IDF fallback
+            return [self._generate_tfidf_embedding(text) for text in texts]
 
 
 class VectorStore:
@@ -272,18 +328,19 @@ class VectorStore:
 class SemanticSearchEngine:
     """Main semantic search engine for Flux."""
     
-    def __init__(self, project_path: str, cache_dir: Optional[Path] = None):
+    def __init__(self, project_path: str, cache_dir: Optional[Path] = None, llm_client=None):
         """Initialize semantic search engine.
         
         Args:
             project_path: Path to the project root (can be string or Path)
             cache_dir: Optional cache directory for embeddings
+            llm_client: LLM client for generating embeddings (optional)
         """
         self.project_path = Path(project_path) if isinstance(project_path, str) else project_path
         self.cache_dir = cache_dir or self.project_path / ".flux" / "embeddings"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         
-        self.embedding_gen = EmbeddingGenerator()
+        self.embedding_gen = EmbeddingGenerator(llm_client=llm_client)
         # Create valid collection name
         project_name = self.project_path.name if self.project_path.name else "default"
         # Ensure collection name is valid (alphanumeric, dots, underscores, hyphens)
@@ -369,9 +426,9 @@ class SemanticSearchEngine:
             content = file_path.read_text(encoding='utf-8')
             lines = content.splitlines()
             
-            # For now, use simple chunking by size
-            # TODO: Use AST parsing for better semantic chunking
-            chunk_size = 50  # lines per chunk
+            # Chunk by size with overlap for better context
+            # Smaller chunks to stay within embedding model token limits (8K)
+            chunk_size = 50  # lines per chunk (~2000 tokens)
             overlap = 10  # lines of overlap
             
             for i in range(0, len(lines), chunk_size - overlap):
@@ -404,14 +461,18 @@ class SemanticSearchEngine:
         Returns:
             Text prepared for embedding
         """
-        # Add context to improve embedding quality
-        context = f"File: {chunk.file_path}\n"
-        context += f"Lines: {chunk.start_line}-{chunk.end_line}\n"
-        context += f"Type: {chunk.chunk_type}\n"
-        context += f"Language: {chunk.metadata.get('language', 'unknown')}\n\n"
-        context += chunk.content
+        # Just use raw code content - metadata would push us over token limits
+        # The embedding model (text-embedding-3-small) has 8192 token limit
+        # Rough estimate: 1 token ~= 4 characters, so 8192 tokens ~= 32K chars
+        # Truncate to 30K chars to be safe (leaves ~7500 token limit)
+        text = chunk.content
+        max_chars = 30000
         
-        return context
+        if len(text) > max_chars:
+            logger.warning(f"Truncating chunk from {chunk.file_path} ({len(text)} -> {max_chars} chars)")
+            text = text[:max_chars]
+        
+        return text
     
     async def search(
         self,
@@ -429,8 +490,8 @@ class SemanticSearchEngine:
         Returns:
             List of search results
         """
-        # Generate query embedding
-        query_embedding = self.embedding_gen.generate_embedding(query)
+        # Generate query embedding (use async method)
+        query_embedding = await self.embedding_gen.generate_embedding_async(query)
         
         # Prepare filters
         filters = {}
@@ -482,21 +543,42 @@ class SemanticSearchEngine:
         # Limit files
         files_to_index = files_to_index[:max_files]
         
+        # Filter out already indexed files
+        files_to_index = [f for f in files_to_index if str(f) not in self.indexed_files]
+        
+        if not files_to_index:
+            logger.info("All files already indexed")
+            return {
+                'indexed_files': 0,
+                'total_chunks': 0,
+                'total_files_scanned': 0,
+                'index_location': str(self.cache_dir),
+                'message': 'All files already indexed'
+            }
+        
+        logger.info(f"Indexing {len(files_to_index)} new files")
+        
         # Index files in parallel
         total_chunks = 0
         indexed_files = 0
         
-        # Batch process for efficiency
-        batch_size = 10
+        # Batch process for efficiency (smaller batches to avoid overwhelming API)
+        batch_size = 5
         for i in range(0, len(files_to_index), batch_size):
             batch = files_to_index[i:i + batch_size]
             tasks = [self.index_file(file_path) for file_path in batch]
-            results = await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
             
-            for chunks_count in results:
-                if chunks_count > 0:
+            for idx, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"Failed to index {batch[idx]}: {result}")
+                    continue
+                if result > 0:
                     indexed_files += 1
-                    total_chunks += chunks_count
+                    total_chunks += result
+            
+            # Log progress
+            logger.info(f"Indexed {indexed_files}/{len(files_to_index)} files ({total_chunks} chunks)")
         
         stats = {
             'indexed_files': indexed_files,
@@ -512,13 +594,14 @@ class SemanticSearchEngine:
 class CodeSearchTool:
     """High-level tool for semantic code search."""
     
-    def __init__(self, project_path: Path):
+    def __init__(self, project_path: Path, llm_client=None):
         """Initialize code search tool.
         
         Args:
             project_path: Path to project root
+            llm_client: LLM client for embeddings (optional)
         """
-        self.engine = SemanticSearchEngine(project_path)
+        self.engine = SemanticSearchEngine(project_path, llm_client=llm_client)
         self.initialized = False
     
     async def initialize(self, auto_index: bool = True) -> None:

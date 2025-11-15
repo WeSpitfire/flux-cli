@@ -39,8 +39,10 @@ class TabManager {
   }
 
   createTab(label = null, cwd = null) {
+    // Use the current working directory or a placeholder as the label
+    const dynamicLabel = cwd ? `Terminal - ${cwd.split('/').pop()}` : 'Terminal';
     const tabId = `tab-${this.nextTabId++}`;
-    const defaultLabel = label || `Terminal ${this.nextTabId - 1}`;
+    const defaultLabel = label || dynamicLabel;
     const defaultCwd = cwd || null; // null will use projectRoot in main process
 
     // Create tab data
@@ -88,7 +90,7 @@ class TabManager {
 
     tab.innerHTML = `
       <span class="tab-icon">⚡</span>
-      <span class="tab-label">${this.escapeHtml(tabData.label)}</span>
+      <span class="tab-label" contenteditable="true">${this.escapeHtml(tabData.label)}</span>
       <span class="tab-close" data-action="close">
         <svg viewBox="0 0 16 16" fill="none">
           <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -97,7 +99,33 @@ class TabManager {
     `;
 
     // Tab click handler
+    tab.querySelector('.tab-label').addEventListener('dblclick', (e) => {
+  e.target.focus();
+  e.stopPropagation();
+});
+
+tab.querySelector('.tab-label').addEventListener('focus', (e) => {
+  console.log('Tab label focused for editing:', tabData.id);
+});
+tab.querySelector('.tab-label').addEventListener('blur', (e) => {
+  console.log('Tab label blur event:', tabData.id);
+      if (e.target.isContentEditable) {
+        const newLabel = e.target.textContent.replace(/^\s+|\s+$/g, '');
+        if (newLabel) {
+          this.updateTabLabel(tabData.id, newLabel);
+        } else {
+          e.target.textContent = tabData.label; // Revert to old label if empty
+        }
+      }
+    });
+
     tab.addEventListener('click', (e) => {
+  if (e.target.classList.contains('tab-label')) {
+    // Prevent tab switch if clicking on the label
+    e.target.focus();
+    e.stopPropagation();
+    return;
+  }
       if (e.target.closest('.tab-close')) {
         this.closeTab(tabData.id);
       } else {

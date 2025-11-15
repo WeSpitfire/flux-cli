@@ -2,6 +2,10 @@
 
 import sys
 from typing import Optional, List, Dict, Any
+from pathlib import Path
+from flux.core.project_brief import ProjectBrief
+from flux.core.conversation_summarizer import ConversationSummarizer
+from flux.core.conversation_state import ConversationStateManager
 
 
 class ConversationManager:
@@ -14,6 +18,16 @@ class ConversationManager:
             cli: The CLI instance (provides access to all dependencies)
         """
         self.cli = cli
+        
+        # Initialize project brief
+        self.project_brief = self._load_or_create_project_brief()
+        
+        # Initialize conversation summarizer
+        project_name = self.cli.cwd.name
+        self.summarizer = ConversationSummarizer(project_name)
+        
+        # Initialize conversation state manager
+        self.state_manager = ConversationStateManager(project_name, self.cli.cwd)
 
     async def process_query(self, query: str):
         """Process a user query.
@@ -24,13 +38,42 @@ class ConversationManager:
         # Log the raw input
         self.cli.debug_logger.log_user_input(query, query)
 
-        # SMART TASK DECOMPOSITION
+        # SMART TASK DECOMPOSITION (Warp-style: simple and reliable)
         if self.cli.task_planner:
             should_decompose, reason = await self.cli.task_planner.should_decompose(query)
             if should_decompose:
-                self.cli.console.print(f"[dim]💡 Complex task detected: {reason}[/dim]")
-                self.cli.console.print("[dim]🧠 Analyzing and planning execution...[/dim]\n")
-                await self.cli.process_with_task_planner(query)
+                from flux.core.todo_manager import TodoPriority
+                
+                # Create simple tracking todos
+                self.cli.console.print(f"[dim]💡 {reason}[/dim]")
+                self.cli.console.print(f"[dim]📋 Creating task tracker...[/dim]\n")
+                
+                todo_list = self.cli.todo_manager.create_todo_list_from_query(query)
+                
+                # Add generic milestones
+                self.cli.todo_manager.add_todo(
+                    "🔍 Understand requirements",
+                    "Analyze codebase and understand what needs to be changed",
+                    priority=TodoPriority.HIGH
+                )
+                self.cli.todo_manager.add_todo(
+                    "⚡ Implement changes",
+                    "Make necessary code modifications to achieve the goal",
+                    priority=TodoPriority.HIGH
+                )
+                self.cli.todo_manager.add_todo(
+                    "✅ Verify & test",
+                    "Ensure changes work correctly and meet requirements",
+                    priority=TodoPriority.MEDIUM
+                )
+                
+                # Show todos
+                self.cli.console.print(self.cli.todo_manager.format_todos_display())
+                self.cli.console.print()
+                
+                # Let AI work normally - it will handle everything
+                # No complex JSON planning needed!
+                await self.process_query_normal(query)
                 return
 
         # Check if this should be orchestrated (legacy workflows)
@@ -83,6 +126,14 @@ class ConversationManager:
         usage_percent = (conversation_tokens / max_tokens) * 100 if max_tokens > 0 else 0
 
         usage = self.cli.llm.get_token_usage()
+
+        # === CONVERSATION SUMMARIZATION ===
+        # Check if we should summarize old messages
+        if self.summarizer.should_summarize(conversation_tokens, max_tokens, threshold=0.7):
+            await self._perform_summarization()
+            # Recalculate after summarization
+            conversation_tokens = self.cli.llm.estimate_conversation_tokens()
+            usage_percent = (conversation_tokens / max_tokens) * 100 if max_tokens > 0 else 0
 
         # Show token status
         self.cli.display.print_token_usage(
@@ -212,6 +263,14 @@ class ConversationManager:
             
             # Save knowledge graph
             self.cli.smart_context.save()
+            
+            # === PROJECT BRIEF: Auto-save after each query ===
+            # This ensures brief persists even if terminal crashes
+            self.save_project_brief()
+            
+            # === CONVERSATION STATE: Auto-save after each query ===
+            # Save conversation state for cross-restart continuity
+            self.save_conversation_state()
             
             # Time Machine: Create auto-snapshot if it's time
             if self.cli.time_machine.should_auto_snapshot():
@@ -531,8 +590,20 @@ class ConversationManager:
 
         # Get model-appropriate prompt
         prompt = get_system_prompt(self.cli.config.model)
+        
+        # === PROJECT BRIEF (ALWAYS INCLUDED - NEVER FORGOTTEN) ===
+        # This is the MOST IMPORTANT addition - ensures constraints/style never drop off
+        brief_prompt = self.project_brief.to_prompt()
+        if brief_prompt:
+            prompt += "\n\n" + brief_prompt
+        
+        # === CONVERSATION SUMMARIES ===
+        # Include summaries of old conversation chunks
+        summaries_prompt = self.summarizer.get_summaries_for_prompt(max_summaries=3)
+        if summaries_prompt:
+            prompt += "\n\n" + summaries_prompt
 
-        # Add minimal project context
+        # Add minimal project context (legacy, keep for backwards compat)
         if self.cli.project_info:
             prompt += f"\n\nProject: {self.cli.project_info.name} ({self.cli.project_info.project_type})"
             if self.cli.project_info.frameworks:
@@ -564,3 +635,136 @@ class ConversationManager:
             prompt += f"\n\nActive task: {session_context['current_task']}"
 
         return prompt
+    
+    def _load_or_create_project_brief(self) -> ProjectBrief:
+        """Load existing project brief or create new one.
+        
+        Returns:
+            ProjectBrief instance
+        """
+        # Get project directory
+        project_dir = self.cli.cwd
+        
+        # Brief storage: ~/.flux/projects/{project_name}/brief.json
+        flux_dir = Path.home() / ".flux" / "projects" / project_dir.name
+        brief_file = flux_dir / "brief.json"
+        
+        # Try to load existing brief
+        if brief_file.exists():
+            brief = ProjectBrief.load(brief_file)
+        else:
+            # Auto-detect from project files
+            brief = ProjectBrief.auto_detect(project_dir)
+            # Save for next time
+            brief.save(brief_file)
+        
+        return brief
+    
+    def save_project_brief(self):
+        """Save current project brief to disk."""
+        project_dir = self.cli.cwd
+        flux_dir = Path.home() / ".flux" / "projects" / project_dir.name
+        brief_file = flux_dir / "brief.json"
+        self.project_brief.save(brief_file)
+    
+    async def _perform_summarization(self):
+        """Perform conversation summarization when context gets too full.
+        
+        Strategy:
+        - Keep last 10 messages (recent context)
+        - Summarize messages 11-50 (if they exist)
+        - Drop messages before 11
+        """
+        conversation = self.cli.llm.conversation_history
+        
+        if len(conversation) <= 10:
+            # Not enough messages to summarize
+            return
+        
+        # Keep recent messages (last 10)
+        recent_messages = conversation[-10:]
+        
+        # Messages to summarize (everything before last 10, up to 40 messages)
+        messages_to_summarize = conversation[:-10]
+        if len(messages_to_summarize) > 40:
+            # Only summarize last 40 of the old messages
+            messages_to_summarize = messages_to_summarize[-40:]
+        
+        if not messages_to_summarize:
+            return
+        
+        # Calculate indices
+        start_index = len(conversation) - len(recent_messages) - len(messages_to_summarize)
+        end_index = len(conversation) - len(recent_messages) - 1
+        
+        try:
+            # Show status
+            self.cli.console.print("[dim]📝 Summarizing old messages to preserve context...[/dim]")
+            
+            # Create summary using LLM
+            summary = await self.summarizer.summarize_messages(
+                messages_to_summarize,
+                self.cli.llm,
+                start_index,
+                end_index
+            )
+            
+            # Add to summarizer
+            self.summarizer.add_summary(summary)
+            
+            # Update conversation history: keep only recent messages
+            self.cli.llm.conversation_history = recent_messages
+            
+            # Show stats
+            stats = self.summarizer.get_stats()
+            saved = summary.original_token_count - summary.summary_token_count
+            self.cli.console.print(
+                f"[dim]✓ Summarized {summary.original_message_count} messages "
+                f"(saved ~{saved} tokens)[/dim]"
+            )
+        except Exception as e:
+            # If summarization fails, fall back to simple pruning
+            self.cli.console.print(f"[yellow]⚠ Summarization failed, using simple pruning[/yellow]")
+            # Keep last 20 messages as fallback
+            self.cli.llm.conversation_history = conversation[-20:]
+    
+    def save_conversation_state(self):
+        """Save conversation state to disk."""
+        try:
+            # Gather current state
+            conversation_history = self.cli.llm.conversation_history
+            summaries = [s.to_dict() for s in self.summarizer.summaries]
+            project_brief = self.project_brief.to_dict()
+            
+            # Save
+            self.state_manager.save_state(
+                conversation_history=conversation_history,
+                summaries=summaries,
+                project_brief=project_brief
+            )
+        except Exception:
+            # Don't fail if state save fails
+            pass
+    
+    def restore_conversation_state(self) -> bool:
+        """Restore conversation state from disk.
+        
+        Returns:
+            True if state was restored, False otherwise
+        """
+        try:
+            # Load state
+            state = self.state_manager.load_state()
+            if state is None:
+                return False
+            
+            # Restore to managers
+            self.state_manager.restore_to_managers(
+                self.cli.llm,
+                self.summarizer,
+                self
+            )
+            
+            return True
+        except Exception:
+            return False

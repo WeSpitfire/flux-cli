@@ -34,18 +34,22 @@ class WorkflowCoordinator:
             self.cli.console.print(f"[bold]\u2705 Plan created:[/bold] {len(plan.steps)} steps")
             self.cli.console.print(f"[dim]Complexity: {plan.complexity}[/dim]\n")
 
-            # Step 2: Show plan to user
-            self.cli.console.print("[bold cyan]Execution Plan:[/bold cyan]")
-            for step in plan.steps:
-                self.cli.console.print(f"  {step.step_number}. {step.description}")
-                self.cli.console.print(f"     [dim]{step.rationale}[/dim]")
-            self.cli.console.print()
+            # Step 1.5: Create todo list from plan
+            todo_list = self.cli.todo_manager.create_todo_list_from_plan(plan)
+            self.cli.console.print(f"[dim]📋 Created {len(todo_list.todos)} todos for tracking[/dim]\n")
+
+            # Step 2: Show plan to user with todo display
+            self.cli.console.print(self.cli.todo_manager.format_todos_display())
 
             # Step 3: Execute plan step by step
-            for step in plan.steps:
+            for i, step in enumerate(plan.steps):
                 if self.cli._processing_cancelled:
                     self.cli.console.print("[yellow]Task cancelled by user[/yellow]")
                     break
+
+                # Mark current todo as in progress
+                todo_id = f"{todo_list.id}-{i+1}"
+                self.cli.todo_manager.mark_in_progress(todo_id)
 
                 self.cli.console.print(f"\n[bold cyan]Step {step.step_number}:[/bold cyan] {step.description}")
 
@@ -54,14 +58,24 @@ class WorkflowCoordinator:
                     self.cli.console.print(f"[dim]Reading context: {', '.join(step.requires_context)}[/dim]")
                     # TODO: Actually read the context files
 
-                # Execute the step through normal conversation mode
-                # This allows LLM to use all available tools
-                await self.cli.process_query_normal(step.description)
+                try:
+                    # Execute the step through normal conversation mode
+                    # This allows LLM to use all available tools
+                    await self.cli.process_query_normal(step.description)
 
-                # Mark step as completed
-                step.completed = True
+                    # Mark step as completed
+                    step.completed = True
+                    self.cli.todo_manager.mark_completed(todo_id)
 
-                self.cli.console.print(f"[green]✓ Step {step.step_number} completed[/green]")
+                    self.cli.console.print(f"[green]✓ Step {step.step_number} completed[/green]")
+                    
+                    # Show updated progress
+                    progress = self.cli.todo_manager.get_progress()
+                    self.cli.console.print(f"[dim]Progress: {progress['completed']}/{progress['total']} ({progress['percentage']}%)[/dim]")
+                    
+                except Exception as e:
+                    self.cli.todo_manager.mark_failed(todo_id, str(e))
+                    raise
 
             if not self.cli._processing_cancelled:
                 self.cli.console.print("\n[bold green]🎉 Task completed successfully![/bold green]")

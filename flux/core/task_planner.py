@@ -79,7 +79,9 @@ class TaskPlanner:
         complex_patterns = [
             "build", "create", "implement", "add feature", "add a",
             "refactor and", "fix and", "update and",
-            "make a", "develop", "write a"
+            "make a", "develop", "write a",
+            "redesign", "rewrite", "convert", "migrate",
+            "setup", "configure", "deploy", "integrate"
         ]
 
         # Indicators of simple tasks
