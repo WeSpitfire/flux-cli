@@ -47,6 +47,16 @@ contextBridge.exposeInMainWorld('flux', {
   
   openSettings: () => {
     ipcRenderer.send('open-settings');
+  },
+  
+  changeWorkingDirectory: (tabId, newPath) => {
+    return ipcRenderer.invoke('change-working-directory', { tabId, newPath });
+  },
+  
+  onWorkingDirectoryChanged: (callback) => {
+    ipcRenderer.on('working-directory-changed', (_, { tabId, path }) => {
+      callback(tabId, path);
+    });
   }
 });
 

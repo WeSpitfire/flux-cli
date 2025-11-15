@@ -307,6 +307,42 @@ function createWindow () {
       retryState.delete(tabId);
     }
   });
+  
+  // Handle working directory change
+  ipcMain.handle('change-working-directory', async (event, { tabId, newPath }) => {
+    console.log(`Changing working directory for tab ${tabId} to:`, newPath);
+    
+    try {
+      // Validate path exists
+      const stats = await fs.promises.stat(newPath);
+      if (!stats.isDirectory()) {
+        return { success: false, error: 'Path is not a directory' };
+      }
+      
+      // Kill existing process for this tab
+      const fluxData = fluxProcesses.get(tabId);
+      if (fluxData && fluxData.process && !fluxData.process.killed) {
+        fluxData.process.kill();
+        fluxProcesses.delete(tabId);
+      }
+      
+      // Wait a moment for process to clean up
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Spawn new process in new directory
+      await spawnFluxForTab(tabId, newPath);
+      
+      // Notify renderer of successful change
+      if (!win.isDestroyed()) {
+        win.webContents.send('working-directory-changed', { tabId, path: newPath });
+      }
+      
+      return { success: true, path: newPath };
+    } catch (err) {
+      console.error(`Failed to change working directory:`, err);
+      return { success: false, error: err.message };
+    }
+  });
 
   if (process.argv.includes('--dev')) {
     win.webContents.openDevTools();

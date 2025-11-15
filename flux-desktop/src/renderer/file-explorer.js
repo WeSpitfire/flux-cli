@@ -1,5 +1,9 @@
 // Use exposed fileSystem API from preload
 
+// Track current working directory
+let currentWorkingDirectory = null;
+let activeTabId = null;
+
 function getFileIcon(fileName, isDirectory) {
   if (isDirectory) return '📁';
   const extension = fileName.split('.').pop().toLowerCase();
@@ -23,13 +27,32 @@ function getFileIcon(fileName, isDirectory) {
   }
 }
 
-function createFileNode(fileName, fullPath, isDirectory) {
+function isProjectDirectory(fileName) {
+  // Common project markers
+  const projectMarkers = [
+    'package.json', 'requirements.txt', 'go.mod', 'Cargo.toml',
+    'pom.xml', 'build.gradle', 'composer.json', '.git'
+  ];
+  return projectMarkers.includes(fileName);
+}
+
+function createFileNode(fileName, fullPath, isDirectory, hasProjectMarker = false) {
   const wrapper = document.createElement('div');
   wrapper.classList.add('file-wrapper');
 
   const nodeEl = document.createElement('div');
   nodeEl.classList.add('file-node');
   nodeEl.dataset.path = fullPath;
+  
+  // Highlight active working directory
+  if (isDirectory && fullPath === currentWorkingDirectory) {
+    nodeEl.classList.add('active-directory');
+  }
+  
+  // Add project indicator for directories with project markers
+  if (isDirectory && hasProjectMarker) {
+    nodeEl.classList.add('project-directory');
+  }
 
   if (isDirectory) {
     const expandIndicator = document.createElement('span');
@@ -47,6 +70,19 @@ function createFileNode(fileName, fullPath, isDirectory) {
   nameEl.classList.add('file-name');
   nameEl.textContent = fileName;
   nodeEl.appendChild(nameEl);
+  
+  // Add "Work Here" button for directories
+  if (isDirectory && fullPath !== currentWorkingDirectory) {
+    const workHereBtn = document.createElement('button');
+    workHereBtn.classList.add('work-here-btn');
+    workHereBtn.textContent = '⚡';
+    workHereBtn.title = 'Work in this directory';
+    workHereBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await changeWorkingDirectory(fullPath);
+    });
+    nodeEl.appendChild(workHereBtn);
+  }
 
   wrapper.appendChild(nodeEl);
 
@@ -56,16 +92,24 @@ function createFileNode(fileName, fullPath, isDirectory) {
     childrenContainer.style.display = 'none';
     wrapper.appendChild(childrenContainer);
 
-    nodeEl.addEventListener('click', (e) => {
+    // Click to expand/collapse
+    const expandArea = nodeEl.querySelector('.expand-indicator');
+    if (expandArea) {
+      expandArea.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleFolder(nodeEl, fullPath, childrenContainer);
+      });
+    }
+    
+    // Double-click directory name to work in it
+    nameEl.addEventListener('dblclick', async (e) => {
       e.stopPropagation();
-      toggleFolder(nodeEl, fullPath, childrenContainer);
+      await changeWorkingDirectory(fullPath);
     });
   } else {
-    nodeEl.addEventListener('click', (e) => {
-      e.stopPropagation();
-      console.log('Open file:', fullPath);
-      // TODO: Implement file opening
-    });
+    // Hide files by default - only show in active working directory's immediate children
+    // This makes the explorer directory-focused
+    wrapper.style.display = 'none';
   }
 
   return wrapper;
@@ -90,6 +134,50 @@ async function toggleFolder(nodeEl, dirPath, childrenContainer) {
   }
 }
 
+async function changeWorkingDirectory(newPath) {
+  if (!window.tabManager || !window.tabManager.activeTabId) {
+    console.error('No active tab');
+    return;
+  }
+  
+  const tabId = window.tabManager.activeTabId;
+  activeTabId = tabId;
+  
+  try {
+    console.log('Changing working directory to:', newPath);
+    
+    // Show loading state
+    const dirPathEl = document.getElementById('directory-path');
+    dirPathEl.innerHTML = `<span class="loading">⏳ Switching to ${newPath.split('/').pop()}...</span>`;
+    
+    // Call IPC to change directory
+    const result = await window.flux.changeWorkingDirectory(tabId, newPath);
+    
+    if (result.success) {
+      currentWorkingDirectory = newPath;
+      dirPathEl.textContent = newPath;
+      
+      // Reload file tree to show new directory
+      const fileTreeContainer = document.getElementById('file-tree-container');
+      fileTreeContainer.innerHTML = '';
+      await loadDirectory(newPath, fileTreeContainer);
+      
+      // Auto-trigger /index for new directory
+      console.log('Auto-indexing new directory...');
+      setTimeout(() => {
+        if (window.flux && window.flux.sendCommand) {
+          window.flux.sendCommand(tabId, '/index');
+        }
+      }, 500);
+    } else {
+      console.error('Failed to change directory:', result.error);
+      dirPathEl.innerHTML = `<span class="error">⚠️ Failed: ${result.error}</span>`;
+    }
+  } catch (err) {
+    console.error('Error changing directory:', err);
+  }
+}
+
 async function loadDirectory(dirPath, container) {
   try {
     const files = await window.fileSystem.readDir(dirPath);
@@ -98,13 +186,28 @@ async function loadDirectory(dirPath, container) {
     const filteredFiles = files.filter(file => 
       !file.startsWith('.') && file !== 'node_modules'
     );
+    
+    // Check for project markers in this directory
+    const hasProjectMarker = filteredFiles.some(file => isProjectDirectory(file));
 
     // Sort: directories first, then files
     const sortedFiles = await Promise.all(
       filteredFiles.map(async (file) => {
         const fullPath = await window.fileSystem.joinPath(dirPath, file);
         const isDirectory = await window.fileSystem.isDirectory(fullPath);
-        return { file, fullPath, isDirectory };
+        
+        // Check if this subdirectory has project markers
+        let subHasProjectMarker = false;
+        if (isDirectory) {
+          try {
+            const subFiles = await window.fileSystem.readDir(fullPath);
+            subHasProjectMarker = subFiles.some(f => isProjectDirectory(f));
+          } catch (e) {
+            // Ignore errors reading subdirectories
+          }
+        }
+        
+        return { file, fullPath, isDirectory, hasProjectMarker: subHasProjectMarker };
       })
     );
 
@@ -114,8 +217,8 @@ async function loadDirectory(dirPath, container) {
       return a.file.localeCompare(b.file);
     });
 
-    sortedFiles.forEach(({ file, fullPath, isDirectory }) => {
-      const nodeEl = createFileNode(file, fullPath, isDirectory);
+    sortedFiles.forEach(({ file, fullPath, isDirectory, hasProjectMarker }) => {
+      const nodeEl = createFileNode(file, fullPath, isDirectory, hasProjectMarker);
       container.appendChild(nodeEl);
     });
   } catch (err) {
@@ -129,8 +232,22 @@ async function initFileExplorer() {
   
   try {
     const rootPath = await window.fileSystem.getCwd();
+    currentWorkingDirectory = rootPath;
     dirPathEl.textContent = rootPath;
     await loadDirectory(rootPath, fileTreeContainer);
+    
+    // Listen for working directory changes from other sources
+    if (window.flux && window.flux.onWorkingDirectoryChanged) {
+      window.flux.onWorkingDirectoryChanged((tabId, newPath) => {
+        console.log('Working directory changed externally:', newPath);
+        currentWorkingDirectory = newPath;
+        dirPathEl.textContent = newPath;
+        
+        // Reload file tree
+        fileTreeContainer.innerHTML = '';
+        loadDirectory(newPath, fileTreeContainer);
+      });
+    }
   } catch (err) {
     console.error('Error initializing file explorer:', err);
     dirPathEl.textContent = 'Error loading directory';

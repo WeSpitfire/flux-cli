@@ -451,6 +451,112 @@ html, body {
   padding: 8px;
 }
 
+/* File/Directory Node Styles */
+.file-wrapper {
+  margin: 2px 0;
+}
+
+.file-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.file-node:hover {
+  background: rgba(88, 166, 255, 0.1);
+}
+
+.file-node.active-directory {
+  background: linear-gradient(135deg, rgba(88, 166, 255, 0.15), rgba(121, 192, 255, 0.1));
+  border: 1px solid rgba(88, 166, 255, 0.3);
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.file-node.project-directory {
+  background: rgba(63, 185, 80, 0.05);
+  border-left: 2px solid var(--success);
+}
+
+.expand-indicator {
+  width: 12px;
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+  cursor: pointer;
+}
+
+.file-node.expanded .expand-indicator {
+  transform: rotate(90deg);
+}
+
+.file-icon {
+  font-size: 14px;
+}
+
+.file-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-node.active-directory .file-name {
+  color: var(--accent-primary);
+}
+
+.work-here-btn {
+  opacity: 0;
+  padding: 2px 8px;
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-hover));
+  border: none;
+  border-radius: 4px;
+  color: var(--bg-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.file-node:hover .work-here-btn {
+  opacity: 1;
+}
+
+.work-here-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(88, 166, 255, 0.4);
+}
+
+.work-here-btn:active {
+  transform: scale(0.95);
+}
+
+.children-container {
+  margin-left: 16px;
+  border-left: 1px solid rgba(88, 166, 255, 0.1);
+  padding-left: 8px;
+}
+
+.directory-path .loading {
+  color: var(--warning);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.directory-path .error {
+  color: var(--error);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 /* ===== Workspace ===== */
 .workspace {
   flex: 1;
