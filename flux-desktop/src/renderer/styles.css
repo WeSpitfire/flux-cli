@@ -21,12 +21,28 @@
   --terminal-user-cmd: #79c0ff;
   --terminal-flux-accent: #39c5cf;
   --terminal-prompt: #bc8cff;
+  --terminal-bg: #0d1117;
+  --terminal-fg: #e6edf3;
   
   /* Status colors */
   --status-analyzing: #d29922;
   --status-writing: #3fb950;
   --status-testing: #58a6ff;
   --status-complete: #56d364;
+}
+
+/* Light theme variables */
+:root.light-theme {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f8fa;
+  --bg-tertiary: #eaeef2;
+  --bg-hover: #d0d7de;
+  --border-color: #d0d7de;
+  --text-primary: #1f2328;
+  --text-secondary: #636c76;
+  --text-muted: #8c959f;
+  --terminal-bg: #ffffff;
+  --terminal-fg: #1f2328;
 }
 
 /* ===== Reset & Base ===== */

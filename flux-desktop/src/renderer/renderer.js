@@ -21,16 +21,24 @@ if (document.readyState === 'loading') {
 }
 
 async function initializeApp() {
-  // Load typing speed from settings
+  // Load appearance settings
   try {
     const settings = await window.settings.get();
-    if (settings.appearance && settings.appearance.typingSpeed !== undefined) {
-      const speeds = [0, 5, 10, 15, 25, 40];
-      TYPING_SPEED = speeds[settings.appearance.typingSpeed] || 15;
-      console.log('[Settings] Loaded typing speed:', TYPING_SPEED, 'ms');
+    if (settings.appearance) {
+      // Load typing speed
+      if (settings.appearance.typingSpeed !== undefined) {
+        const speeds = [0, 5, 10, 15, 25, 40];
+        TYPING_SPEED = speeds[settings.appearance.typingSpeed] || 15;
+        console.log('[Settings] Loaded typing speed:', TYPING_SPEED, 'ms');
+      }
+      
+      // Load and apply theme
+      const theme = settings.appearance.theme || 'dark';
+      applyTheme(theme);
+      console.log('[Settings] Loaded theme:', theme);
     }
   } catch (error) {
-    console.warn('[Settings] Failed to load typing speed, using default:', error);
+    console.warn('[Settings] Failed to load appearance settings, using defaults:', error);
   }
   
   // Initialize TabManager first
@@ -52,6 +60,14 @@ async function initializeApp() {
   
   // Setup global event listeners
   setupGlobalEventListeners();
+  
+  // Listen for theme changes from settings window
+  if (window.settings && window.settings.onThemeChange) {
+    window.settings.onThemeChange((theme) => {
+      console.log('[Settings] Theme change received:', theme);
+      applyTheme(theme);
+    });
+  }
 }
 
 // Create terminal configuration
@@ -796,6 +812,88 @@ if (settingsBtn) {
   console.log('[Settings] Settings button handler attached');
 } else {
   console.error('[Settings] Settings button not found in DOM!');
+}
+
+// Apply theme (used for initial load and theme changes)
+function applyTheme(theme) {
+  const root = document.documentElement;
+  if (theme === 'light') {
+    root.classList.add('light-theme');
+    updateAllTerminalThemes('light');
+  } else {
+    root.classList.remove('light-theme');
+    updateAllTerminalThemes('dark');
+  }
+}
+
+// Theme toggle functionality (toggles between light and dark)
+window.toggleTheme = function() {
+  const root = document.documentElement;
+  const isLightTheme = root.classList.contains('light-theme');
+  
+  if (isLightTheme) {
+    applyTheme('dark');
+  } else {
+    applyTheme('light');
+  }
+};
+
+function updateAllTerminalThemes(theme) {
+  const themes = {
+    dark: {
+      background: '#0d1117',
+      foreground: '#e6edf3',
+      cursor: '#58a6ff',
+      cursorAccent: '#0d1117',
+      selection: 'rgba(88, 166, 255, 0.3)',
+      black: '#0d1117',
+      red: '#ff7b72',
+      green: '#3fb950',
+      yellow: '#d29922',
+      blue: '#58a6ff',
+      magenta: '#bc8cff',
+      cyan: '#39c5cf',
+      white: '#e6edf3',
+      brightBlack: '#6e7681',
+      brightRed: '#ffa198',
+      brightGreen: '#56d364',
+      brightYellow: '#e3b341',
+      brightBlue: '#79c0ff',
+      brightMagenta: '#d2a8ff',
+      brightCyan: '#56d4dd',
+      brightWhite: '#f0f6fc'
+    },
+    light: {
+      background: '#ffffff',
+      foreground: '#1f2328',
+      cursor: '#0969da',
+      cursorAccent: '#ffffff',
+      selection: 'rgba(9, 105, 218, 0.2)',
+      black: '#1f2328',
+      red: '#d1242f',
+      green: '#116329',
+      yellow: '#953800',
+      blue: '#0969da',
+      magenta: '#8250df',
+      cyan: '#1b7c83',
+      white: '#6e7781',
+      brightBlack: '#656d76',
+      brightRed: '#ff7b72',
+      brightGreen: '#3fb950',
+      brightYellow: '#d29922',
+      brightBlue: '#58a6ff',
+      brightMagenta: '#bc8cff',
+      brightCyan: '#39c5cf',
+      brightWhite: '#ffffff'
+    }
+  };
+  
+  // Update all terminal instances
+  terminals.forEach(({ terminal }) => {
+    if (terminal) {
+      terminal.options.theme = themes[theme];
+    }
+  });
 }
 
 // Focus input on load

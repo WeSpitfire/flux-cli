@@ -123,7 +123,8 @@ function createWindow () {
       ...process.env,
       PYTHONUNBUFFERED: '1',
       FORCE_COLOR: '1',
-      TERM: 'xterm-256color'
+      TERM: 'xterm-256color',
+      FLUX_DESKTOP_MODE: '1'  // Enable tree events for Living Tree visualization
     };
     
     // Inject API keys and settings from settings manager
@@ -177,8 +178,33 @@ function createWindow () {
       } catch (err) {
         // Ignore EPIPE errors from logging
       }
-      if (!win.isDestroyed()) {
-        win.webContents.send('flux-output', { tabId, data: output });
+      
+      // Parse and forward tree events for Living Tree visualization
+      const treeEventRegex = /__FLUX_TREE_EVENT__(.+?)__END__/g;
+      let match;
+      let cleanedOutput = output;
+      
+      while ((match = treeEventRegex.exec(output)) !== null) {
+        try {
+          const eventData = JSON.parse(match[1]);
+          if (!win.isDestroyed()) {
+            // Forward tree event to renderer
+            win.webContents.send('flux-tree-event', { 
+              tabId, 
+              event: eventData.event,
+              data: eventData.data 
+            });
+          }
+          // Remove event from output so it doesn't appear in terminal
+          cleanedOutput = cleanedOutput.replace(match[0], '');
+        } catch (err) {
+          console.error(`[Tab ${tabId}] Failed to parse tree event:`, err);
+        }
+      }
+      
+      // Send cleaned output (without tree events) to terminal
+      if (!win.isDestroyed() && cleanedOutput.trim()) {
+        win.webContents.send('flux-output', { tabId, data: cleanedOutput });
       }
     });
 
@@ -570,6 +596,34 @@ ipcMain.handle('get-codebase-graph', async (event, tabId) => {
 });
 
 // ========================================
+// FILE ACTIONS IPC HANDLERS
+// ========================================
+
+// Open file in default editor
+ipcMain.handle('open-in-editor', async (event, filePath) => {
+  const { shell } = require('electron');
+  try {
+    await shell.openPath(filePath);
+    return { success: true };
+  } catch (error) {
+    console.error('[File Actions] Failed to open file:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Show file in Finder (macOS) / Explorer (Windows) / File Manager (Linux)
+ipcMain.handle('show-in-finder', async (event, filePath) => {
+  const { shell } = require('electron');
+  try {
+    shell.showItemInFolder(filePath);
+    return { success: true };
+  } catch (error) {
+    console.error('[File Actions] Failed to show in Finder:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// ========================================
 // SETTINGS IPC HANDLERS
 // ========================================
 
@@ -683,6 +737,17 @@ ipcMain.handle('settings:getBestWorkingProvider', async () => {
     settingsManager = new SettingsManager();
   }
   return await settingsManager.getBestWorkingProvider();
+});
+
+// Apply theme to all windows
+ipcMain.handle('settings:applyTheme', async (event, theme) => {
+  // Broadcast theme change to all windows
+  BrowserWindow.getAllWindows().forEach(window => {
+    if (!window.isDestroyed()) {
+      window.webContents.send('theme-changed', theme);
+    }
+  });
+  return { success: true };
 });
 
 // IPC handler to open settings window

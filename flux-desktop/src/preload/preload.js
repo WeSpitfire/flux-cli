@@ -31,6 +31,12 @@ contextBridge.exposeInMainWorld('flux', {
     });
   },
   
+  onTreeEvent: (callback) => {
+    ipcRenderer.on('flux-tree-event', (_, { tabId, event, data }) => {
+      callback(tabId, event, data);
+    });
+  },
+  
   getCodebaseStats: () => ipcRenderer.invoke('get-codebase-stats'),
 
   onCancelled: (callback) => {
@@ -59,6 +65,12 @@ contextBridge.exposeInMainWorld('fileSystem', {
   searchFiles: (directory, query, maxResults) => ipcRenderer.invoke('search-files', { directory, query, maxResults })
 });
 
+// Expose electron API for file actions
+contextBridge.exposeInMainWorld('electron', {
+  openInEditor: (filePath) => ipcRenderer.invoke('open-in-editor', filePath),
+  showInFinder: (filePath) => ipcRenderer.invoke('show-in-finder', filePath)
+});
+
 // Expose settings API
 contextBridge.exposeInMainWorld('settings', {
   get: () => ipcRenderer.invoke('settings:get'),
@@ -72,5 +84,7 @@ contextBridge.exposeInMainWorld('settings', {
   testConnection: (provider) => ipcRenderer.invoke('settings:testConnection', provider),
   getAvailableModels: (provider) => ipcRenderer.invoke('settings:getAvailableModels', provider),
   reset: () => ipcRenderer.invoke('settings:reset'),
-  getPath: () => ipcRenderer.invoke('settings:getPath')
+  getPath: () => ipcRenderer.invoke('settings:getPath'),
+  applyTheme: (theme) => ipcRenderer.invoke('settings:applyTheme', theme),
+  onThemeChange: (callback) => ipcRenderer.on('theme-changed', (_, theme) => callback(theme))
 });

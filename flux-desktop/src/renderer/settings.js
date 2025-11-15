@@ -53,6 +53,9 @@ async function loadSettings() {
       const typingSpeed = currentSettings.appearance.typingSpeed !== undefined ? currentSettings.appearance.typingSpeed : 3;
       document.getElementById('typing-speed').value = typingSpeed;
       updateTypingSpeedLabel(typingSpeed);
+      
+      const theme = currentSettings.appearance.theme || 'dark';
+      document.getElementById('theme').value = theme;
     }
     
     // Load masked API keys
@@ -229,9 +232,10 @@ async function saveLLMSettings() {
 // Save appearance settings
 async function saveAppearanceSettings() {
   const typingSpeed = parseInt(document.getElementById('typing-speed').value);
+  const theme = document.getElementById('theme').value;
   
   try {
-    await window.settings.setAppearance({ typingSpeed });
+    await window.settings.setAppearance({ typingSpeed, theme });
     showMessage('success', 'Appearance settings saved successfully', 'appearance');
   } catch (error) {
     showMessage('error', 'Failed to save appearance settings', 'appearance');
@@ -293,6 +297,27 @@ async function onProviderChange() {
     showMessage('success', `Provider changed to ${provider}`, 'llm');
   } catch (error) {
     showMessage('error', 'Failed to change provider', 'llm');
+  }
+}
+
+// Theme change handler
+async function onThemeChange() {
+  const theme = document.getElementById('theme').value;
+  
+  try {
+    // Get current appearance settings and merge with new theme
+    const currentSettings = await window.settings.get();
+    const typingSpeed = currentSettings.appearance?.typingSpeed;
+    
+    // Save theme preference
+    await window.settings.setAppearance({ typingSpeed, theme });
+    
+    // Apply theme to main window via IPC
+    await window.settings.applyTheme(theme);
+    
+    showMessage('success', `Theme changed to ${theme}`, 'appearance');
+  } catch (error) {
+    showMessage('error', 'Failed to change theme', 'appearance');
   }
 }
 
