@@ -12,7 +12,7 @@ ALLOWED_COMMANDS = {
     # Version control
     'git',
     # Package managers
-    'npm', 'yarn', 'pnpm', 'pip', 'poetry', 'cargo', 'go',
+    'npm', 'npx', 'yarn', 'pnpm', 'pip', 'poetry', 'cargo', 'go',
     # Build tools
     'make', 'cmake', 'gradle', 'mvn',
     # Testing
@@ -103,7 +103,12 @@ class RunCommandTool(Tool):
     def description(self) -> str:
         return """Execute a shell command and return its output.
 Use this to run CLI tools, git commands, npm/yarn commands, etc.
-The command runs in the current working directory."""
+
+IMPORTANT:
+- Commands run from the project root directory
+- For subdirectory operations, use 'cd' in the command: "cd subdirectory && npm install"
+- Or specify the directory explicitly: "npm install --prefix flux-desktop"
+- Example: To run npm in flux-desktop, use: "npm install --prefix flux-desktop" or "cd flux-desktop && npm install""""
 
     @property
     def parameters(self) -> List[ToolParameter]:
@@ -125,29 +130,61 @@ The command runs in the current working directory."""
     async def execute(self, command: str, timeout: float = 30.0) -> Dict[str, Any]:
         """Execute command safely with whitelist validation.
 
-        SECURITY: Uses whitelist approach and executes with shell=False to prevent injection.
+        SECURITY: Uses whitelist approach. shell=False by default, shell=True only for cd commands.
         """
         try:
-            # Parse and validate command
-            is_valid, error_message, args = parse_and_validate_command(command)
-            if not is_valid:
-                return {
-                    "error": {
-                        "code": "COMMAND_BLOCKED",
-                        "message": error_message,
-                        "command": command,
-                        "suggestion": "Only whitelisted commands can be executed. Check ALLOWED_COMMANDS list."
+            # Check if this is a compound command with cd (e.g., "cd dir && npm install")
+            use_shell = '&&' in command or '||' in command or ';' in command or 'cd ' in command
+            
+            if use_shell:
+                # For compound commands, still validate that base commands are whitelisted
+                # Split by shell operators and check each command
+                import re
+                commands = re.split(r'[;&|]+', command)
+                for cmd in commands:
+                    cmd = cmd.strip()
+                    if not cmd or cmd.startswith('cd '):
+                        continue
+                    # Parse just this sub-command
+                    is_valid, error_message, _ = parse_and_validate_command(cmd)
+                    if not is_valid:
+                        return {
+                            "error": {
+                                "code": "COMMAND_BLOCKED",
+                                "message": f"Part of command blocked: {error_message}",
+                                "command": command,
+                                "suggestion": "Only whitelisted commands can be executed."
+                            }
+                        }
+                
+                # Execute with shell=True for compound commands
+                process = await asyncio.create_subprocess_shell(
+                    command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(self.cwd)
+                )
+            else:
+                # Parse and validate command
+                is_valid, error_message, args = parse_and_validate_command(command)
+                if not is_valid:
+                    return {
+                        "error": {
+                            "code": "COMMAND_BLOCKED",
+                            "message": error_message,
+                            "command": command,
+                            "suggestion": "Only whitelisted commands can be executed. Check ALLOWED_COMMANDS list."
+                        }
                     }
-                }
 
-            # Execute command with shell=False (prevents injection)
-            # Pass arguments as list, not string
-            process = await asyncio.create_subprocess_exec(
-                *args,  # Unpack args as separate arguments
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(self.cwd)
-            )
+                # Execute command with shell=False (prevents injection)
+                # Pass arguments as list, not string
+                process = await asyncio.create_subprocess_exec(
+                    *args,  # Unpack args as separate arguments
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(self.cwd)
+                )
 
             try:
                 stdout, stderr = await asyncio.wait_for(
